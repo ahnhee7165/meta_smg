@@ -101,6 +101,7 @@ tr.total td{font-weight:700;background:#F1EEE8}
       <a href="#brands">브랜드별</a>
       <a href="#engage">광고 반응</a>
       <a href="#trend">일별 추이</a>
+      <a href="#daily">일별 데이터</a>
       <a href="#campaigns">캠페인</a>
       <a href="#creatives">소재 TOP5</a>
       <a href="#audience">타겟 · 지면 · 기기</a>
@@ -147,6 +148,11 @@ tr.total td{font-weight:700;background:#F1EEE8}
         <div class="tabs" id="trendTabs"></div>
         <div class="chart-wrap"><canvas id="trendChart" aria-label="일별 추이 그래프"></canvas></div>
       </div>
+    </section>
+
+    <section id="daily">
+      <h2>일별 데이터 <span class="hint">증감은 전일 대비 · 열 제목을 누르면 정렬</span></h2>
+      <div class="card scroll"><table id="dayTable"></table></div>
     </section>
 
     <section id="campaigns">
@@ -245,25 +251,24 @@ function onMonthChange(){
     wk.innerHTML = '<option value="">주차 전체</option>' + weeks.map(w=>`<option value="${w}">${w}주차</option>`).join('');
     wk.disabled=false;
   }
-  dy.innerHTML='<option value="">일 전체</option>'; dy.disabled=true;
+  fillDays();
   applyRange();
 }
-function onWeekChange(){
+function fillDays(){
   const m = document.getElementById('selMonth').value, w = document.getElementById('selWeek').value;
   const dy = document.getElementById('selDay');
-  if (!w) { dy.innerHTML='<option value="">일 전체</option>'; dy.disabled=true; }
-  else {
-    const days = [...new Set(S.ads.filter(r=>r.date.startsWith(m) && weekOf(r.date)==w).map(r=>r.date))].sort();
-    dy.innerHTML = '<option value="">일 전체</option>' + days.map(d=>`<option value="${d}">${fmtD(d)}</option>`).join('');
-    dy.disabled=false;
-  }
-  applyRange();
+  let days = [...new Set(S.ads.map(r=>r.date))].sort();
+  if (m.startsWith('r')) { const n=+m.slice(1); const from=addDays(S.lastDate,-(n-1)); days = days.filter(d=>d>=from && d<=S.lastDate); }
+  else days = days.filter(d=>d.startsWith(m) && (!w || weekOf(d)==w));
+  dy.innerHTML = '<option value="">일 전체</option>' + days.slice().reverse().map(d=>`<option value="${d}">${fmtD(d)} (${'일월화수목금토'[new Date(d+'T00:00:00Z').getUTCDay()]})</option>`).join('');
+  dy.disabled = !days.length;
 }
+function onWeekChange(){ fillDays(); applyRange(); }
 function applyRange(){
   const m = document.getElementById('selMonth').value, w = document.getElementById('selWeek').value, d = document.getElementById('selDay').value;
   let from, to, label;
-  if (m.startsWith('r')) { const n=+m.slice(1); to=S.lastDate; from=addDays(to,-(n-1)); label=`최근 ${n}일`; }
-  else if (d) { from=to=d; label=`${fmtD(d)}`; }
+  if (d) { from=to=d; label=`${fmtD(d)}`; }
+  else if (m.startsWith('r')) { const n=+m.slice(1); to=S.lastDate; from=addDays(to,-(n-1)); label=`최근 ${n}일`; }
   else if (w) {
     const start=(w-1)*7+1; from=`${m}-${String(start).padStart(2,'0')}`;
     const lastDay = new Date(Date.UTC(+m.slice(0,4), +m.slice(5,7), 0)).getUTCDate();
@@ -380,6 +385,17 @@ const METRIC_COLS = [
 ];
 const toMap = arr => new Map(arr.map(x=>[x.name,x]));
 
+/* ---------- 일별 표 ---------- */
+function renderDaily(rows, total){
+  const DOW='일월화수목금토';
+  const data = groupBy(rows, r=>r.date);
+  const all = groupBy(S.ads.filter(campOk), r=>r.date); const byDate = toMap(all);
+  const prevMap = new Map(data.map(d=>[d.name, byDate.get(addDays(d.name,-1)) || null]));
+  const cols = [{k:'name',l:'날짜',f:d=>`${d} (${DOW[new Date(d+'T00:00:00Z').getUTCDay()]})`}].concat(METRIC_COLS, [{k:'reactions',l:'좋아요',f:n0}]);
+  if (!S.sort.day) S.sort.day = {k:'name', dir:'desc'};
+  table(document.getElementById('dayTable'),'day',cols,data,total,prevMap);
+}
+
 /* ---------- 캠페인 ---------- */
 function renderCampaigns(rows, total, prows, ptotal){
   const data = groupBy(rows, r=>r.campaign);
@@ -476,7 +492,7 @@ function downloadCsv(){
 /* ---------- 렌더 ---------- */
 function render(){
   const c = cur(), p = prev(); const tc = sum(c), tp = sum(p);
-  renderKpis(tc,tp); renderEngagement(tc,tp); renderBrands(); renderTrend(c, p); renderCampaigns(c,tc,p,tp); renderCreatives(c); renderBreakdowns(); renderAdTable(c,tc,p,tp);
+  renderKpis(tc,tp); renderEngagement(tc,tp); renderBrands(); renderTrend(c, p); renderDaily(c,tc); renderCampaigns(c,tc,p,tp); renderCreatives(c); renderBreakdowns(); renderAdTable(c,tc,p,tp);
 }
 function buildBrandOptions(){
   const el = document.getElementById('selBrand');
