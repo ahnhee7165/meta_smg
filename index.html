@@ -42,6 +42,7 @@ section h2 .hint{font-size:12px;font-weight:400;color:var(--muted)}
 .kpi .v{font-size:22px;font-weight:800;margin-top:6px;font-variant-numeric:tabular-nums;white-space:nowrap}
 .kpi .d{font-size:12px;margin-top:4px;font-variant-numeric:tabular-nums;color:var(--muted)}
 .kpi .d.up{color:var(--good)} .kpi .d.down{color:var(--bad)}
+.kpi .d .d2.up{color:var(--good)} .kpi .d .d2.down{color:var(--bad)} .kpi .d .d2.flat{color:var(--muted)}
 .kpi.hl{border-color:var(--accent);background:var(--accent-soft)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:18px}
 .tabs{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:12px}
@@ -98,6 +99,7 @@ tr.total td{font-weight:700;background:#F1EEE8}
     <nav>
       <a href="#summary" class="on">요약</a>
       <a href="#brands">브랜드별</a>
+      <a href="#engage">광고 반응</a>
       <a href="#trend">일별 추이</a>
       <a href="#campaigns">캠페인</a>
       <a href="#creatives">소재 TOP5</a>
@@ -125,6 +127,11 @@ tr.total td{font-weight:700;background:#F1EEE8}
 
     <section>
       <div class="kpis" id="kpis"></div>
+    </section>
+
+    <section id="engage">
+      <h2>광고 반응 <span class="hint">광고로 생긴 게시물 반응 · 인스타그램·페이스북 합산 · 증감은 직전 동일 기간 대비</span></h2>
+      <div class="kpis" id="engKpis"></div>
     </section>
 
     <section id="brands">
@@ -182,7 +189,7 @@ const pct = (v,d=2) => (v==null||!isFinite(v)) ? '-' : (v*100).toFixed(d) + '%';
 const roasF = v => (v==null||!isFinite(v)) ? '-' : nf.format(Math.round(v*100)) + '%';
 const esc = s => String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-const SUM_KEYS = ['impressions','clicks','all_clicks','spend','purchases','purchase_value','add_to_cart','add_to_cart_value','landing_page_views','video_3s','thruplay'];
+const SUM_KEYS = ['impressions','clicks','all_clicks','spend','purchases','purchase_value','add_to_cart','add_to_cart_value','landing_page_views','video_3s','thruplay','reactions','comments','saves','shares','engagement'];
 function sum(rows){
   const t = Object.fromEntries(SUM_KEYS.map(k=>[k,0]));
   for (const r of rows) for (const k of SUM_KEYS) t[k] += +r[k]||0;
@@ -200,6 +207,8 @@ function derive(t){
   t.total_value = t.purchase_value + t.add_to_cart_value;
   t.hook = t.impressions && t.video_3s ? t.video_3s/t.impressions : null;
   t.hold = t.video_3s ? t.thruplay/t.video_3s : null;
+  t.er = t.impressions ? t.engagement/t.impressions : null;
+  t.cpe = t.engagement ? t.spend/t.engagement : null;
   return t;
 }
 
@@ -268,8 +277,8 @@ const cur = () => S.ads.filter(r=>inRange(r,S.range.from,S.range.to) && campOk(r
 const prev = () => S.ads.filter(r=>inRange(r,S.range.prevFrom,S.range.prevTo) && campOk(r));
 
 /* ---------- 증감 ---------- */
-const RATE = new Set(['ctr','roas','cvr','hook','hold']);
-const LOWER = new Set(['cpc','cpm','cpa']);
+const RATE = new Set(['ctr','roas','cvr','hook','hold','er']);
+const LOWER = new Set(['cpc','cpm','cpa','cpe']);
 function deltaHtml(k, c, p){
   if (c==null || p==null || !isFinite(c) || !isFinite(p)) return '<span class="dl flat">직전 없음</span>';
   if (RATE.has(k)) {
@@ -299,8 +308,20 @@ function renderKpis(c,p){
   }).join('');
 }
 
+/* ---------- 광고 반응 ---------- */
+const ENG = [['reactions','좋아요(반응)',n0],['comments','댓글',n0],['saves','저장',n0],['shares','공유',n0],['engagement','게시물 참여',n0],['er','참여율',v=>pct(v)],['cpe','참여당 비용',won]];
+function renderEngagement(c,p){
+  const has = S.ads.some(r=>r.engagement!=null);
+  const sec = document.getElementById('engage');
+  if (!has) { sec.querySelector('#engKpis').innerHTML = '<div class="empty" style="grid-column:1/-1">다음 데이터 수집부터 표시됩니다</div>'; return; }
+  document.getElementById('engKpis').innerHTML = ENG.map(([k,label,f])=>{
+    const d = (p[k]!=null && c[k]!=null && (p[k] || RATE.has(k))) ? deltaHtml(k,c[k],p[k]).replace('class="dl ','class="d2 ') + ` <span style="color:var(--muted)">(직전 ${f(p[k])})</span>` : '<span style="color:var(--muted)">직전 기간 데이터 없음</span>';
+    return `<div class="kpi"><div class="k">${label}</div><div class="v">${f(c[k])}</div><div class="d">${d}</div></div>`;
+  }).join('');
+}
+
 /* ---------- 추이 ---------- */
-const TREND = [['spend','광고비',won,'bar'],['purchase_value','구매 매출',won,'bar'],['purchases','구매',n0,'bar'],['roas','ROAS',roasF,'line'],['clicks','링크 클릭',n0,'bar'],['ctr','CTR',v=>pct(v),'line'],['cpa','CPA',won,'line'],['cpc','CPC',won,'line']];
+const TREND = [['spend','광고비',won,'bar'],['purchase_value','구매 매출',won,'bar'],['purchases','구매',n0,'bar'],['roas','ROAS',roasF,'line'],['clicks','링크 클릭',n0,'bar'],['ctr','CTR',v=>pct(v),'line'],['cpa','CPA',won,'line'],['cpc','CPC',won,'line'],['reactions','좋아요',n0,'bar'],['engagement','게시물 참여',n0,'bar']];
 let chart;
 function renderTrend(rows, prows){
   document.getElementById('trendTabs').innerHTML = TREND.map(([k,l])=>`<button data-k="${k}" class="${k===S.trendMetric?'on':''}">${l}</button>`).join('');
@@ -376,7 +397,7 @@ function renderBrands(){
 }
 
 /* ---------- 소재 TOP5 ---------- */
-const CR_TABS = [['purchases','구매수'],['purchase_value','구매 매출'],['clicks','클릭'],['roas','ROAS'],['worst','저효율 (광고비 대비)']];
+const CR_TABS = [['purchases','구매수'],['purchase_value','구매 매출'],['clicks','클릭'],['roas','ROAS'],['reactions','좋아요'],['engagement','게시물 참여'],['worst','저효율 (광고비 대비)']];
 function adsAgg(rows){
   return groupBy(rows, r=>r.ad_id, rs=>({ad:rs[0].ad, campaign:rs[0].campaign, adset:rs[0].adset, ad_id:rs[0].ad_id}));
 }
@@ -395,6 +416,7 @@ function renderCreatives(rows){
     const c = S.creatives[a.ad_id] || {};
     const rowsDl = [['광고비','spend',won],['구매','purchases',n0],['구매 매출','purchase_value',won],['ROAS','roas',roasF],['클릭','clicks',n0],['CTR','ctr',v=>pct(v)]];
     if (a.video_3s>0) rowsDl.push(['Hook','hook',v=>pct(v,1)],['Hold','hold',v=>pct(v,1)]);
+    if (m==='reactions'||m==='engagement') rowsDl.splice(1,3,['좋아요','reactions',n0],['댓글','comments',n0],['저장','saves',n0],['공유','shares',n0]);
     return `<div class="cr"><div class="img" style="${c.thumb?`background-image:url('${esc(c.thumb)}')`:''}"><span class="rank">${m==='worst'?'W':''}${i+1}</span></div>
       <div class="body"><div class="nm" title="${esc(a.ad)}">${esc(a.ad)}</div><div class="cp" title="${esc(a.campaign)}">${esc(a.campaign)}</div>
       <dl>${rowsDl.map(([l,k,f])=>`<dt>${l}</dt><dd class="${k===mainKey?'main':''}">${f(a[k])}</dd>`).join('')}</dl></div></div>`;
@@ -428,15 +450,15 @@ function renderAdTable(rows, total, prows, ptotal){
   const data = adsAgg(rows).map(a=>Object.assign(a,{name:a.ad_id}));
   const pmap = new Map(adsAgg(prows).map(a=>[a.ad_id,a]));
   const cols = [{k:'ad',l:'소재',html:r=>`${esc(r.ad)}<div style="font-size:11px;color:var(--muted)">${esc(r.campaign)} › ${esc(r.adset)}</div>`}]
-    .concat(METRIC_COLS, [{k:'hook',l:'Hook',f:v=>pct(v,1)},{k:'hold',l:'Hold',f:v=>pct(v,1)}]);
+    .concat(METRIC_COLS, [{k:'reactions',l:'좋아요',f:n0,delta:1},{k:'comments',l:'댓글',f:n0},{k:'saves',l:'저장',f:n0},{k:'shares',l:'공유',f:n0},{k:'hook',l:'Hook',f:v=>pct(v,1)},{k:'hold',l:'Hold',f:v=>pct(v,1)}]);
   table(document.getElementById('adTable'),'ads',cols,data,total,pmap,ptotal);
 }
 
 /* ---------- CSV ---------- */
 function downloadCsv(){
   const rows = cur();
-  const head = ['날짜','월','주차','브랜드','캠페인','광고세트','소재','노출','링크클릭','광고비','구매','구매매출','장바구니','장바구니매출','랜딩페이지조회','3초조회','ThruPlay'];
-  const lines = [head.join(',')].concat(rows.map(r=>[r.date, +r.date.slice(5,7)+'월', +r.date.slice(5,7)+'월 '+weekOf(r.date)+'주차', r.brand, r.campaign, r.adset, r.ad, r.impressions, r.clicks, r.spend, r.purchases, r.purchase_value, r.add_to_cart, r.add_to_cart_value, r.landing_page_views, r.video_3s, r.thruplay]
+  const head = ['날짜','월','주차','브랜드','캠페인','광고세트','소재','노출','링크클릭','광고비','구매','구매매출','장바구니','장바구니매출','랜딩페이지조회','3초조회','ThruPlay','좋아요(반응)','댓글','저장','공유','게시물참여'];
+  const lines = [head.join(',')].concat(rows.map(r=>[r.date, +r.date.slice(5,7)+'월', +r.date.slice(5,7)+'월 '+weekOf(r.date)+'주차', r.brand, r.campaign, r.adset, r.ad, r.impressions, r.clicks, r.spend, r.purchases, r.purchase_value, r.add_to_cart, r.add_to_cart_value, r.landing_page_views, r.video_3s, r.thruplay, r.reactions??'', r.comments??'', r.saves??'', r.shares??'', r.engagement??'']
     .map(v=>{ v=String(v??''); return /[",\n]/.test(v)?`"${v.replace(/"/g,'""')}"`:v; }).join(',')));
   const blob = new Blob(['﻿'+lines.join('\n')], {type:'text/csv;charset=utf-8'});
   const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`smg_meta_${S.range.from}_${S.range.to}.csv`; a.click(); URL.revokeObjectURL(a.href);
@@ -445,7 +467,7 @@ function downloadCsv(){
 /* ---------- 렌더 ---------- */
 function render(){
   const c = cur(), p = prev(); const tc = sum(c), tp = sum(p);
-  renderKpis(tc,tp); renderBrands(); renderTrend(c, p); renderCampaigns(c,tc,p,tp); renderCreatives(c); renderBreakdowns(); renderAdTable(c,tc,p,tp);
+  renderKpis(tc,tp); renderEngagement(tc,tp); renderBrands(); renderTrend(c, p); renderCampaigns(c,tc,p,tp); renderCreatives(c); renderBreakdowns(); renderAdTable(c,tc,p,tp);
 }
 function buildBrandOptions(){
   const el = document.getElementById('selBrand');

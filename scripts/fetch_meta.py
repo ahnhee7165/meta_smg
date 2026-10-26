@@ -199,6 +199,12 @@ def metrics(r):
         "landing_page_views": pick(actions, LPV_TYPES),
         "video_3s": pick(actions, ["video_view"]),
         "thruplay": pick(r.get("video_thruplay_watched_actions"), ["video_view"]),
+        # 광고로 생긴 게시물 반응 (인스타그램·페이스북 합산)
+        "reactions": pick(actions, ["post_reaction"]),
+        "comments": pick(actions, ["comment"]),
+        "saves": pick(actions, ["onsite_conversion.post_save", "post_save"]),
+        "shares": pick(actions, ["post"]),
+        "engagement": pick(actions, ["post_engagement"]),
     }
 
 
