@@ -498,6 +498,7 @@ async function init(){
   document.querySelector('.brand').firstChild.textContent = ACCT.label;
   document.title = `${ACCT.label} 메타 광고 리포트`;
   const sa = document.getElementById('selAccount');
+  if (ACCOUNTS.length < 2) sa.style.display='none';
   sa.innerHTML = ACCOUNTS.map(a=>`<option value="${a.key}" ${a.key===ACCT.key?'selected':''}>${esc(a.label)}</option>`).join('');
   sa.addEventListener('change', ()=>{ const q=new URLSearchParams(location.search); q.set('acct', sa.value); q.delete('data'); location.search=q.toString(); });
   const parts = await Promise.all(paths.map(async base => {
