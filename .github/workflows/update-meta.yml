@@ -1,0 +1,48 @@
+name: 메타 데이터 업데이트
+
+on:
+  schedule:
+    - cron: "47 20 * * *"   # 매일 05:47 KST
+  workflow_dispatch:
+    inputs:
+      days:
+        description: "다시 불러올 최근 일수 (첫 실행은 180 권장)"
+        required: false
+        default: "30"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: meta-update
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 메타 API에서 데이터 수집
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN }}
+          META_AD_ACCOUNT_ID: ${{ vars.META_AD_ACCOUNT_ID || '1063121639295543' }}
+          FETCH_DAYS: ${{ github.event.inputs.days || '30' }}
+        run: python scripts/fetch_meta.py
+
+      - name: 변경된 데이터 커밋
+        run: |
+          git config user.name "meta-report-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add data
+          if git diff --cached --quiet; then
+            echo "변경 없음"
+          else
+            git commit -m "데이터 업데이트 $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M')"
+            git push
+          fi
