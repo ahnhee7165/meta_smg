@@ -177,14 +177,17 @@ tr.total td{font-weight:700;background:#F1EEE8}
 </div>
 
 <script>
+const SMG_BRANDS = ['지포','레드렌서','오피넬','클린켄틴','날진'];
 const ACCOUNTS = [
-  {key:'smg',  label:'SMG STORE',  path:'data',      brands:['지포','레드렌서','오피넬','클린켄틴','날진']},
-  {key:'buff', label:'buff.korea', path:'data/buff', brands:[]},
+  {key:'smg',  label:'SMG STORE',  paths:['data'],      brands:SMG_BRANDS},
+  {key:'buff', label:'buff.korea', paths:['data/buff'], brands:[]},
+  {key:'all',  label:'전체 (SMG+버프)', paths:['data','data/buff'], brands:SMG_BRANDS.concat(['버프']), tag:{'data/buff':'버프'}},
 ];
 const ACCT = ACCOUNTS.find(a=>a.key===new URLSearchParams(location.search).get('acct')) || ACCOUNTS[0];
 const BRANDS = ACCT.brands;  // 광고세트 → 캠페인 이름 순서로 찾음
 const S = { ads:[], bd:{}, creatives:{}, meta:{}, range:null, campaign:'', brand:'', trendMetric:'spend', crMetric:'purchases', sort:{} };
 function brandOf(r){
+  if (r._brand) return r._brand;
   for (const src of [r.adset, r.campaign, r.ad]) { const b = BRANDS.find(x=>(src||'').includes(x)); if (b) return b; }
   return '기타';
 }
@@ -490,16 +493,30 @@ async function getJson(path, fallback){
   try { const r = await fetch(path + '?v=' + Date.now()); if (!r.ok) return fallback; return await r.json(); } catch(e){ return fallback; }
 }
 async function init(){
-  const base = new URLSearchParams(location.search).get('data') || ACCT.path;
+  const custom = new URLSearchParams(location.search).get('data');
+  const paths = custom ? [custom] : ACCT.paths;
   document.querySelector('.brand').firstChild.textContent = ACCT.label;
   document.title = `${ACCT.label} 메타 광고 리포트`;
   const sa = document.getElementById('selAccount');
   sa.innerHTML = ACCOUNTS.map(a=>`<option value="${a.key}" ${a.key===ACCT.key?'selected':''}>${esc(a.label)}</option>`).join('');
   sa.addEventListener('change', ()=>{ const q=new URLSearchParams(location.search); q.set('acct', sa.value); q.delete('data'); location.search=q.toString(); });
-  const [ads, meta, creatives, ag, pl, dv] = await Promise.all([
-    getJson(`${base}/ads_daily.json`, []), getJson(`${base}/meta.json`, {}), getJson(`${base}/creatives.json`, {}),
-    getJson(`${base}/breakdown_age_gender.json`, []), getJson(`${base}/breakdown_placement.json`, []), getJson(`${base}/breakdown_device.json`, []),
-  ]);
+  const parts = await Promise.all(paths.map(async base => {
+    const [ads, meta, creatives, ag, pl, dv] = await Promise.all([
+      getJson(`${base}/ads_daily.json`, []), getJson(`${base}/meta.json`, {}), getJson(`${base}/creatives.json`, {}),
+      getJson(`${base}/breakdown_age_gender.json`, []), getJson(`${base}/breakdown_placement.json`, []), getJson(`${base}/breakdown_device.json`, []),
+    ]);
+    const tag = (ACCT.tag||{})[base]; if (tag) ads.forEach(r=>{ r._brand=tag; r.campaign=`[${tag}] ${r.campaign}`; });
+    return {ads, meta, creatives, ag, pl, dv};
+  }));
+  const ads = parts.flatMap(x=>x.ads).sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0);
+  const creatives = Object.assign({}, ...parts.map(x=>x.creatives));
+  const ag = parts.flatMap(x=>x.ag), pl = parts.flatMap(x=>x.pl), dv = parts.flatMap(x=>x.dv);
+  const metas = parts.map(x=>x.meta).filter(m=>m && m.updated_at);
+  const meta = metas.length===1 ? metas[0] : (metas.length ? {
+    account_name: metas.map(m=>m.account_name).join(' + '), account_id: metas.map(m=>m.account_id).join(', '),
+    updated_at: metas.map(m=>m.updated_at).sort()[0],
+    first_date: metas.map(m=>m.first_date).filter(Boolean).sort()[0], last_date: metas.map(m=>m.last_date).filter(Boolean).sort().slice(-1)[0],
+  } : {});
   for (const r of ads) r.brand = brandOf(r);
   Object.assign(S, {ads, meta, creatives, bd:{age_gender:ag, placement:pl, device:dv}});
   document.getElementById('foot').innerHTML = meta.updated_at ? `광고계정 ${esc(meta.account_name||'')}<br>${esc(meta.account_id||'')}<br>업데이트 ${esc(meta.updated_at)}<br>데이터 ${esc(meta.first_date||'')} ~ ${esc(meta.last_date||'')}` : '';
