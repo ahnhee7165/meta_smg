@@ -90,6 +90,88 @@ def paged(url, params):
     return rows
 
 
+def creative_refs(c):
+    """크리에이티브에서 이미지 해시·동영상 ID 추출 (단일/캐러셀/다이내믹 소재 공통)."""
+    hashes, videos = [], []
+    if c.get("image_hash"):
+        hashes.append(c["image_hash"])
+    if c.get("video_id"):
+        videos.append(c["video_id"])
+    spec = c.get("object_story_spec") or {}
+    link = spec.get("link_data") or {}
+    if link.get("image_hash"):
+        hashes.append(link["image_hash"])
+    for ch in link.get("child_attachments") or []:
+        if ch.get("image_hash"):
+            hashes.append(ch["image_hash"])
+        if ch.get("video_id"):
+            videos.append(ch["video_id"])
+    vd = spec.get("video_data") or {}
+    if vd.get("video_id"):
+        videos.append(vd["video_id"])
+    feed = c.get("asset_feed_spec") or {}
+    for img in feed.get("images") or []:
+        if img.get("hash"):
+            hashes.append(img["hash"])
+    for vid in feed.get("videos") or []:
+        if vid.get("video_id"):
+            videos.append(vid["video_id"])
+    return hashes, videos
+
+
+def story_picture(c):
+    spec = c.get("object_story_spec") or {}
+    link = spec.get("link_data") or {}
+    if link.get("picture"):
+        return link["picture"]
+    for ch in link.get("child_attachments") or []:
+        if ch.get("picture"):
+            return ch["picture"]
+    return (spec.get("video_data") or {}).get("image_url")
+
+
+def image_urls(hashes):
+    """광고 이미지 해시 → 원본 해상도 URL."""
+    out, hashes = {}, list(hashes)
+    for i in range(0, len(hashes), 50):
+        part = hashes[i:i + 50]
+        try:
+            rows = paged(f"{BASE}/act_{ACCOUNT_ID}/adimages",
+                         {"hashes": json.dumps(part), "fields": "hash,url,permalink_url", "limit": 100})
+        except SystemExit:
+            raise
+        for r in rows:
+            if r.get("hash"):
+                out[r["hash"]] = r.get("url") or r.get("permalink_url")
+    return out
+
+
+def video_thumbs(video_ids):
+    """동영상 ID → 가장 큰(대표) 썸네일 URL. 권한이 없는 영상은 건너뜀."""
+    out = {}
+    for vid in video_ids:
+        try:
+            data = call_soft(f"{BASE}/{vid}", {"fields": "thumbnails{uri,width,is_preferred},picture"})
+        except Exception:
+            data = None
+        if not data:
+            continue
+        thumbs = (data.get("thumbnails") or {}).get("data") or []
+        pref = [t for t in thumbs if t.get("is_preferred")] or sorted(thumbs, key=lambda t: t.get("width") or 0, reverse=True)
+        out[vid] = (pref[0]["uri"] if pref else None) or data.get("picture")
+    return out
+
+
+def call_soft(url, params):
+    """실패해도 전체 수집을 멈추지 않는 단건 호출 (소재 썸네일용)."""
+    q = f"{url}?{urllib.parse.urlencode(dict(params, access_token=TOKEN))}"
+    try:
+        with urllib.request.urlopen(q, timeout=60) as res:
+            return json.load(res)
+    except (urllib.error.HTTPError, urllib.error.URLError, ValueError):
+        return None
+
+
 def pick(items, types):
     """actions 배열에서 우선순위대로 첫 번째로 존재하는 액션 값을 반환."""
     if not items:
@@ -217,18 +299,36 @@ def main():
     ad_ids = {r["ad_id"] for r in ads if r.get("ad_id")}
     creatives = load("creatives.json", {})
     listed = paged(f"{BASE}/act_{ACCOUNT_ID}/ads", {
-        "fields": "id,name,effective_status,created_time,creative{id,thumbnail_url,image_url,object_type}",
-        "thumbnail_width": 400, "thumbnail_height": 400, "limit": 200,
+        "fields": "id,name,effective_status,created_time,"
+                  "creative.thumbnail_width(1080).thumbnail_height(1080)"
+                  "{id,thumbnail_url,image_url,image_hash,video_id,object_type,object_story_spec,asset_feed_spec}",
+        "limit": 100,
     })
+    listed = [a for a in listed if a["id"] in ad_ids]
+
+    # 이미지 해시 → 원본 URL, 동영상 ID → 고해상도 썸네일
+    hashes, videos = set(), set()
     for a in listed:
-        if a["id"] not in ad_ids:
-            continue
         c = a.get("creative") or {}
+        h, v = creative_refs(c)
+        hashes.update(h)
+        videos.update(v)
+    hash_url = image_urls(hashes)
+    video_url = video_thumbs(videos)
+
+    for a in listed:
+        c = a.get("creative") or {}
+        h, v = creative_refs(c)
+        thumb = (c.get("image_url")
+                 or next((hash_url[x] for x in h if x in hash_url), None)
+                 or story_picture(c)
+                 or next((video_url[x] for x in v if x in video_url), None)
+                 or c.get("thumbnail_url"))
         creatives[a["id"]] = {
             "name": a.get("name"),
             "status": a.get("effective_status"),
             "created": (a.get("created_time") or "")[:10],
-            "thumb": c.get("thumbnail_url") or c.get("image_url"),
+            "thumb": thumb,
             "type": c.get("object_type"),
         }
     save("creatives.json", creatives)
