@@ -35,6 +35,15 @@ jobs:
           FETCH_DAYS: ${{ github.event.inputs.days || '30' }}
         run: python scripts/fetch_meta.py
 
+      - name: 버프(buff.korea) 데이터 수집
+        env:
+          META_ACCESS_TOKEN: ${{ secrets.META_ACCESS_TOKEN_BUFF }}
+          META_AD_ACCOUNT_ID: ${{ vars.BUFF_AD_ACCOUNT_ID || '1300202118417849' }}
+          FETCH_DAYS: ${{ github.event.inputs.days || '30' }}
+          DATA_SUBDIR: buff
+          OPTIONAL: "1"
+        run: python scripts/fetch_meta.py
+
       - name: 변경된 데이터 커밋
         run: |
           git config user.name "meta-report-bot"

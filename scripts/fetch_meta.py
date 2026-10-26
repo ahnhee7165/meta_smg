@@ -23,7 +23,8 @@ TOKEN = os.environ.get("META_ACCESS_TOKEN", "").strip()
 ACCOUNT_ID = os.environ.get("META_AD_ACCOUNT_ID", "").strip().replace("act_", "")
 FETCH_DAYS = int(os.environ.get("FETCH_DAYS", "30") or 30)
 BASE = f"https://graph.facebook.com/{API_VERSION}"
-DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data")
+DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", os.environ.get("DATA_SUBDIR", "").strip())
+OPTIONAL = os.environ.get("OPTIONAL", "") == "1"   # 토큰이 없으면 건너뜀(추가 계정용)
 KST = ZoneInfo("Asia/Seoul")
 
 # 구매·장바구니는 통합(omni) 액션을 우선 사용하고, 없으면 픽셀 액션으로 대체
@@ -258,10 +259,24 @@ def merge(existing, new_rows, since, until, key):
 
 
 def main():
+    global ACCOUNT_ID
     if not TOKEN:
+        if OPTIONAL:
+            print("토큰이 등록되지 않아 이 계정은 건너뜁니다.")
+            return
         fail("META_ACCESS_TOKEN이 없습니다. 저장소 Settings › Secrets and variables › Actions에 등록하세요.")
+    if not ACCOUNT_ID:
+        # 계정 ID가 없으면 토큰으로 접근 가능한 광고계정을 자동으로 찾음
+        accts = paged(f"{BASE}/me/adaccounts", {"fields": "account_id,name,account_status", "limit": 100})
+        for a in accts:
+            print(f"  접근 가능한 광고계정: {a.get('name')} ({a.get('account_id')}) 상태 {a.get('account_status')}")
+        active = [a for a in accts if a.get("account_status") == 1] or accts
+        if not active:
+            fail("이 토큰으로 접근 가능한 광고계정이 없습니다. 시스템 사용자에 광고계정을 할당하세요.")
+        ACCOUNT_ID = str(active[0]["account_id"])
+        print(f"광고계정 자동 선택: {active[0].get('name')} ({ACCOUNT_ID}) — 바꾸려면 저장소 변수 BUFF_AD_ACCOUNT_ID 설정")
     if not ACCOUNT_ID.isdigit():
-        fail("META_AD_ACCOUNT_ID가 올바르지 않습니다 (숫자만).")
+        fail("광고계정 ID가 올바르지 않습니다 (숫자만).")
     os.makedirs(DATA_DIR, exist_ok=True)
 
     account = call(f"{BASE}/act_{ACCOUNT_ID}", {"fields": "name,currency,timezone_name,account_status"})

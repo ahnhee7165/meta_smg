@@ -1,6 +1,6 @@
 # SMG STORE 메타 광고 리포트
 
-Meta Marketing API로 광고계정 `1063121639295543`(SMG STORE_OFFICIAL) 데이터를 매일 자동 수집해 GitHub Pages 대시보드로 보여줍니다.
+Meta Marketing API로 광고계정 `1063121639295543`(SMG STORE_OFFICIAL)과 `1300202118417849`(buff.korea) 데이터를 매일 자동 수집해 GitHub Pages 대시보드로 보여줍니다.
 
 ## 구조
 
@@ -24,7 +24,7 @@ Meta Marketing API로 광고계정 `1063121639295543`(SMG STORE_OFFICIAL) 데이
 ## 처음 설정 (한 번만)
 
 1. **토큰 등록** — 저장소 Settings › Secrets and variables › Actions › New repository secret
-   - Name: `META_ACCESS_TOKEN`
+   - SMG: Name `META_ACCESS_TOKEN` / 버프: Name `META_ACCESS_TOKEN_BUFF` (버프 데이터는 `data/buff/`에 저장, 대시보드 상단 광고계정 드롭다운으로 전환)
    - Secret: 비즈니스 포트폴리오 시스템 사용자 토큰 (권한 `ads_read`, 광고계정 자산 할당 필요)
 2. (선택) 다른 광고계정으로 쓰려면 Variables 탭에 `META_AD_ACCOUNT_ID` 추가
 3. **첫 수집** — Actions 탭 › 메타 데이터 업데이트 › Run workflow › 일수 `180`

@@ -115,6 +115,7 @@ tr.total td{font-weight:700;background:#F1EEE8}
         <div class="sub" id="sub">데이터를 불러오는 중입니다</div>
       </div>
       <div class="filters">
+        <select id="selAccount" aria-label="광고계정"></select>
         <select id="selMonth" aria-label="월"></select>
         <select id="selWeek" aria-label="주차"></select>
         <select id="selDay" aria-label="일"></select>
@@ -176,7 +177,12 @@ tr.total td{font-weight:700;background:#F1EEE8}
 </div>
 
 <script>
-const BRANDS = ['지포','레드렌서','오피넬','클린켄틴','날진'];  // 광고세트 → 캠페인 이름 순서로 찾음
+const ACCOUNTS = [
+  {key:'smg',  label:'SMG STORE',  path:'data',      brands:['지포','레드렌서','오피넬','클린켄틴','날진']},
+  {key:'buff', label:'buff.korea', path:'data/buff', brands:[]},
+];
+const ACCT = ACCOUNTS.find(a=>a.key===new URLSearchParams(location.search).get('acct')) || ACCOUNTS[0];
+const BRANDS = ACCT.brands;  // 광고세트 → 캠페인 이름 순서로 찾음
 const S = { ads:[], bd:{}, creatives:{}, meta:{}, range:null, campaign:'', brand:'', trendMetric:'spend', crMetric:'purchases', sort:{} };
 function brandOf(r){
   for (const src of [r.adset, r.campaign, r.ad]) { const b = BRANDS.find(x=>(src||'').includes(x)); if (b) return b; }
@@ -461,7 +467,7 @@ function downloadCsv(){
   const lines = [head.join(',')].concat(rows.map(r=>[r.date, +r.date.slice(5,7)+'월', +r.date.slice(5,7)+'월 '+weekOf(r.date)+'주차', r.brand, r.campaign, r.adset, r.ad, r.impressions, r.clicks, r.spend, r.purchases, r.purchase_value, r.add_to_cart, r.add_to_cart_value, r.landing_page_views, r.video_3s, r.thruplay, r.reactions??'', r.comments??'', r.saves??'', r.shares??'', r.engagement??'']
     .map(v=>{ v=String(v??''); return /[",\n]/.test(v)?`"${v.replace(/"/g,'""')}"`:v; }).join(',')));
   const blob = new Blob(['﻿'+lines.join('\n')], {type:'text/csv;charset=utf-8'});
-  const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`smg_meta_${S.range.from}_${S.range.to}.csv`; a.click(); URL.revokeObjectURL(a.href);
+  const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`${ACCT.key}_meta_${S.range.from}_${S.range.to}.csv`; a.click(); URL.revokeObjectURL(a.href);
 }
 
 /* ---------- 렌더 ---------- */
@@ -471,7 +477,7 @@ function render(){
 }
 function buildBrandOptions(){
   const el = document.getElementById('selBrand');
-  if (!BRANDS.length) { el.style.display='none'; return; }
+  if (!BRANDS.length) { el.style.display='none'; const nav=document.querySelector('.side nav a[href="#brands"]'); if(nav) nav.style.display='none'; return; }
   const have = new Set(S.ads.map(r=>r.brand));
   el.innerHTML = '<option value="">브랜드 전체</option>' + BRANDS.concat(['기타']).filter(b=>have.has(b)).map(b=>`<option value="${esc(b)}">${esc(b)}</option>`).join('');
 }
@@ -484,7 +490,12 @@ async function getJson(path, fallback){
   try { const r = await fetch(path + '?v=' + Date.now()); if (!r.ok) return fallback; return await r.json(); } catch(e){ return fallback; }
 }
 async function init(){
-  const base = new URLSearchParams(location.search).get('data') || 'data';
+  const base = new URLSearchParams(location.search).get('data') || ACCT.path;
+  document.querySelector('.brand').firstChild.textContent = ACCT.label;
+  document.title = `${ACCT.label} 메타 광고 리포트`;
+  const sa = document.getElementById('selAccount');
+  sa.innerHTML = ACCOUNTS.map(a=>`<option value="${a.key}" ${a.key===ACCT.key?'selected':''}>${esc(a.label)}</option>`).join('');
+  sa.addEventListener('change', ()=>{ const q=new URLSearchParams(location.search); q.set('acct', sa.value); q.delete('data'); location.search=q.toString(); });
   const [ads, meta, creatives, ag, pl, dv] = await Promise.all([
     getJson(`${base}/ads_daily.json`, []), getJson(`${base}/meta.json`, {}), getJson(`${base}/creatives.json`, {}),
     getJson(`${base}/breakdown_age_gender.json`, []), getJson(`${base}/breakdown_placement.json`, []), getJson(`${base}/breakdown_device.json`, []),
@@ -494,10 +505,11 @@ async function init(){
   document.getElementById('foot').innerHTML = meta.updated_at ? `광고계정 ${esc(meta.account_name||'')}<br>${esc(meta.account_id||'')}<br>업데이트 ${esc(meta.updated_at)}<br>데이터 ${esc(meta.first_date||'')} ~ ${esc(meta.last_date||'')}` : '';
   if (!ads.length) {
     document.getElementById('sub').innerHTML = '아직 수집된 데이터가 없습니다';
+    document.querySelectorAll('main section, .filters select:not(#selAccount), #btnCsv, .range-label').forEach(el=>el.style.display='none');
     document.querySelector('main').insertAdjacentHTML('beforeend', '<div class="notice">GitHub Actions의 <b>메타 데이터 업데이트</b> 워크플로를 한 번 실행하면 데이터가 채워집니다. (Actions 탭 › Run workflow · 첫 실행은 일수 180 권장)</div>');
     return;
   }
-  document.getElementById('sub').textContent = `${meta.account_name||'SMG STORE'} · 링크 클릭 기준 · 구매/매출은 메타 기여(계정 기본 기여 설정) 기준`;
+  document.getElementById('sub').textContent = `${meta.account_name||ACCT.label} · 링크 클릭 기준 · 구매/매출은 메타 기여(계정 기본 기여 설정) 기준`;
   buildMonthOptions(); buildBrandOptions(); buildCampaignOptions(); onMonthChange();
 }
 document.getElementById('selMonth').addEventListener('change', onMonthChange);
