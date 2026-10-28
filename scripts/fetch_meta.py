@@ -100,6 +100,41 @@ def paged(url, params):
     return rows
 
 
+FULL_CREATIVE = ("creative.thumbnail_width(1080).thumbnail_height(1080)"
+                 "{id,thumbnail_url,image_url,image_hash,video_id,object_type,object_story_spec,asset_feed_spec}")
+LIGHT_CREATIVE = "creative.thumbnail_width(1080).thumbnail_height(1080){id,thumbnail_url,image_url,image_hash,video_id,object_type}"
+
+
+def list_ads(ad_ids):
+    """필요한 광고만 소량씩 조회. 거절되면 묶음을 줄이고, 그래도 안 되면 가벼운 필드로 조회."""
+    out = []
+    i, size, fields = 0, 25, FULL_CREATIVE
+    while i < len(ad_ids):
+        part = ad_ids[i:i + size]
+        try:
+            rows = paged(f"{BASE}/act_{ACCOUNT_ID}/ads", {
+                "fields": "id,name,effective_status,created_time," + fields,
+                "filtering": json.dumps([{"field": "id", "operator": "IN", "value": part}]),
+                "limit": size,
+            })
+        except TooMuchData:
+            if size > 1:
+                size = max(1, size // 4)
+                print(f"  소재 정보 요청이 커서 {size}개씩 다시 요청")
+                continue
+            if fields is FULL_CREATIVE:
+                fields = LIGHT_CREATIVE
+                print("  소재 정보를 가벼운 항목으로 다시 요청")
+                continue
+            print(f"  소재 {part[0]} 정보는 건너뜀")
+            i += 1
+            continue
+        out.extend(rows)
+        i += len(part)
+    print(f"  소재 정보 {len(out)}/{len(ad_ids)}개")
+    return out
+
+
 def creative_refs(c):
     """크리에이티브에서 이미지 해시·동영상 ID 추출 (단일/캐러셀/다이내믹 소재 공통)."""
     hashes, videos = [], []
@@ -143,13 +178,14 @@ def story_picture(c):
 def image_urls(hashes):
     """광고 이미지 해시 → 원본 해상도 URL."""
     out, hashes = {}, list(hashes)
-    for i in range(0, len(hashes), 50):
-        part = hashes[i:i + 50]
+    for i in range(0, len(hashes), 20):
+        part = hashes[i:i + 20]
         try:
             rows = paged(f"{BASE}/act_{ACCOUNT_ID}/adimages",
                          {"hashes": json.dumps(part), "fields": "hash,url,permalink_url", "limit": 100})
-        except SystemExit:
-            raise
+        except TooMuchData:
+            print("  이미지 원본 주소 일부를 건너뜀")
+            continue
         for r in rows:
             if r.get("hash"):
                 out[r["hash"]] = r.get("url") or r.get("permalink_url")
@@ -342,13 +378,7 @@ def main():
     # 3) 소재 정보(썸네일·상태) — 데이터에 등장한 광고만 보관
     ad_ids = {r["ad_id"] for r in ads if r.get("ad_id")}
     creatives = load("creatives.json", {})
-    listed = paged(f"{BASE}/act_{ACCOUNT_ID}/ads", {
-        "fields": "id,name,effective_status,created_time,"
-                  "creative.thumbnail_width(1080).thumbnail_height(1080)"
-                  "{id,thumbnail_url,image_url,image_hash,video_id,object_type,object_story_spec,asset_feed_spec}",
-        "limit": 100,
-    })
-    listed = [a for a in listed if a["id"] in ad_ids]
+    listed = list_ads(sorted(ad_ids))
 
     # 이미지 해시 → 원본 URL, 동영상 ID → 고해상도 썸네일
     hashes, videos = set(), set()
