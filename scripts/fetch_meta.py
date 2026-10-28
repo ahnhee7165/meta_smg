@@ -44,6 +44,10 @@ BREAKDOWNS = {
 }
 
 
+class TooMuchData(Exception):
+    """메타가 '요청 데이터가 너무 많다'고 거절한 경우 — 기간을 쪼개서 다시 요청."""
+
+
 def fail(msg):
     print(f"::error::{msg}")
     sys.exit(1)
@@ -65,9 +69,14 @@ def call(url, params=None):
             except ValueError:
                 err = {}
             code = err.get("code")
+            sub = err.get("error_subcode")
+            msg = err.get("message", body[:200])
+            print(f"  메타 응답 오류 HTTP {e.code} code={code} subcode={sub}: {msg}")
+            if sub == 1487534 or "reduce the amount of data" in msg.lower() or (code == 1 and attempt >= 1):
+                raise TooMuchData(msg)
             if code in (1, 2, 4, 17, 32, 613, 80000, 80004) or e.code >= 500:
-                wait = 60 * (attempt + 1)
-                print(f"일시 오류/호출 한도(code {code}) - {wait}초 후 재시도")
+                wait = min(300, 60 * (attempt + 1))
+                print(f"  일시 오류/호출 한도 - {wait}초 후 재시도")
                 time.sleep(wait)
                 continue
             if code == 190:
@@ -217,21 +226,35 @@ def chunks(since, until, size=30):
         start = end + dt.timedelta(days=1)
 
 
+def insights_range(s, e, level, fields, breakdowns):
+    """한 구간 요청. 데이터가 너무 많다고 거절되면 구간을 반으로 나눠 다시 요청(최소 1일)."""
+    params = {
+        "level": level,
+        "fields": ",".join(fields),
+        "time_range": json.dumps({"since": s.isoformat(), "until": e.isoformat()}),
+        "time_increment": 1,
+        "limit": 200,
+    }
+    if breakdowns:
+        params["breakdowns"] = breakdowns
+    try:
+        part = paged(f"{BASE}/act_{ACCOUNT_ID}/insights", params)
+    except TooMuchData:
+        days = (e - s).days + 1
+        if days <= 1:
+            fail(f"하루치({s}) 요청도 메타가 거절했습니다. 잠시 후 다시 실행해 주세요.")
+        mid = s + dt.timedelta(days=days // 2 - 1)
+        print(f"  요청이 커서 나눠서 다시 요청: {s}~{mid} / {mid + dt.timedelta(days=1)}~{e}")
+        return (insights_range(s, mid, level, fields, breakdowns)
+                + insights_range(mid + dt.timedelta(days=1), e, level, fields, breakdowns))
+    print(f"  {level}{' / ' + breakdowns if breakdowns else ''}: {s} ~ {e} → {len(part)}행")
+    return part
+
+
 def insights(since, until, level, fields, breakdowns=None):
     rows = []
-    for s, e in chunks(since, until):
-        params = {
-            "level": level,
-            "fields": ",".join(fields),
-            "time_range": json.dumps({"since": s.isoformat(), "until": e.isoformat()}),
-            "time_increment": 1,
-            "limit": 500,
-        }
-        if breakdowns:
-            params["breakdowns"] = breakdowns
-        part = paged(f"{BASE}/act_{ACCOUNT_ID}/insights", params)
-        print(f"  {level}{' / ' + breakdowns if breakdowns else ''}: {s} ~ {e} → {len(part)}행")
-        rows.extend(part)
+    for s, e in chunks(since, until, 14 if level == "ad" else 30):
+        rows.extend(insights_range(s, e, level, fields, breakdowns))
     return rows
 
 
@@ -368,4 +391,7 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except TooMuchData as e:
+        fail(f"메타가 요청을 거절했습니다(데이터 과다/일시 오류): {e}")
