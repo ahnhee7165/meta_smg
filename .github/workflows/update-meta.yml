@@ -64,5 +64,6 @@ jobs:
             echo "변경 없음"
           else
             git commit -m "데이터 업데이트 $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M')"
+            git pull --rebase -X theirs origin main || git pull --rebase origin main
             git push
           fi
