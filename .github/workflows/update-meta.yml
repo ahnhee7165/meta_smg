@@ -44,6 +44,17 @@ jobs:
           OPTIONAL: "1"
         run: python scripts/fetch_meta.py
 
+      - name: 네이버 검색광고 데이터 수집
+        id: naver
+        continue-on-error: true   # 네이버가 실패해도 메타 데이터는 커밋
+        env:
+          NAVER_API_KEY: ${{ secrets.NAVER_API_KEY }}
+          NAVER_SECRET_KEY: ${{ secrets.NAVER_SECRET_KEY }}
+          NAVER_CUSTOMER_IDS: ${{ secrets.NAVER_CUSTOMER_IDS }}
+          FETCH_DAYS: ${{ github.event.inputs.days || '30' }}
+          OPTIONAL: "1"
+        run: python scripts/fetch_naver.py
+
       - name: 변경된 데이터 커밋
         run: |
           git config user.name "meta-report-bot"

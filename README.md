@@ -9,6 +9,7 @@ Meta Marketing API로 광고계정 `1063121639295543`(SMG STORE_OFFICIAL)과 `13
 | `scripts/fetch_meta.py` | Graph API 호출 → `data/*.json` 갱신 (외부 패키지 없음) |
 | `.github/workflows/update-meta.yml` | 매일 05:47(KST) 자동 실행 + 수동 실행(일수 입력) |
 | `index.html` | 대시보드 (기간 월 › 주차 › 일, KPI, 추이, 캠페인, 소재 TOP5, 성별·연령/지면/기기, CSV) |
+| `scripts/fetch_naver.py` | 네이버 검색광고 API 호출 → `data/naver/*.json` 갱신 (외부 패키지 없음) |
 | `data/` | 수집된 데이터 (Actions가 자동 커밋) |
 
 수집 데이터
@@ -26,6 +27,7 @@ Meta Marketing API로 광고계정 `1063121639295543`(SMG STORE_OFFICIAL)과 `13
 1. **토큰 등록** — 저장소 Settings › Secrets and variables › Actions › New repository secret
    - SMG: Name `META_ACCESS_TOKEN` / 버프: Name `META_ACCESS_TOKEN_BUFF` (버프 데이터는 `data/buff/`에 저장, 대시보드 상단 광고계정 드롭다운으로 전환)
    - Secret: 비즈니스 포트폴리오 시스템 사용자 토큰 (권한 `ads_read`, 광고계정 자산 할당 필요)
+   - 네이버 검색광고: `NAVER_API_KEY`(액세스 라이선스), `NAVER_SECRET_KEY`(비밀키), `NAVER_CUSTOMER_IDS`(`고객ID:이름`, 쉼표 구분) — 광고그룹 단위 일별 성과가 `data/naver/adgroups_daily.json`에 저장
 2. (선택) 다른 광고계정으로 쓰려면 Variables 탭에 `META_AD_ACCOUNT_ID` 추가
 3. **첫 수집** — Actions 탭 › 메타 데이터 업데이트 › Run workflow › 일수 `180`
 4. **페이지 공개** — Settings › Pages › Source: Deploy from a branch › `main` / `(root)` › Save
