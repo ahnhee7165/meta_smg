@@ -298,17 +298,26 @@ def collect_customer(cid, cname, days, type_totals):
     # 5) 성별·연령 (쇼핑검색 캠페인, /stats breakdown)
     demo = []
     shop_ids = [k for k, c in campaigns.items() if c.get("campaignTp") == "SHOPPING"]
+    def demo_stats(id_list, day, bd):
+        base = {"fields": json.dumps(["impCnt", "clkCnt", "salesAmt", "ccnt"]),
+                "timeRange": json.dumps({"since": day, "until": day}),
+                "timeIncrement": "allDays", "breakdown": bd}
+        res = call(cid, "/stats", dict(base, ids=",".join(id_list)))
+        data = res.get("data", []) if isinstance(res, dict) else (res or [])
+        if data and not any(s.get("breakdowns") for s in data):
+            # 여러 ID 조회에서 분해가 빠지면 캠페인별 단건 조회로 다시 시도
+            data = []
+            for one in id_list:
+                r1 = call(cid, "/stats", dict(base, id=one))
+                d1 = r1.get("data", []) if isinstance(r1, dict) else (r1 or [])
+                data += d1 if isinstance(d1, list) else [d1]
+        return data
+
     for dim, bd in (("gender", "genderNm"), ("age", "ageRangeNm")):
         for day in days[-DEMO_MAX_DAYS:]:
             try:
                 for i in range(0, len(shop_ids), CHUNK):
-                    res = call(cid, "/stats", {
-                        "ids": ",".join(shop_ids[i:i + CHUNK]),
-                        "fields": json.dumps(["impCnt", "clkCnt", "salesAmt", "ccnt"]),
-                        "timeRange": json.dumps({"since": day, "until": day}),
-                        "breakdown": bd,
-                    })
-                    data = res.get("data", []) if isinstance(res, dict) else (res or [])
+                    data = demo_stats(shop_ids[i:i + CHUNK], day, bd)
                     if data and dim not in DIAG["demo_sample"]:
                         DIAG["demo_sample"][dim] = data[0]
                         print(f"  {bd} 예시: {json.dumps(data[0], ensure_ascii=False)[:300]}")
