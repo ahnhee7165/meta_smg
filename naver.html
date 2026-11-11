@@ -155,7 +155,7 @@ body{word-break:keep-all}
     </section>
 
     <section id="types">
-      <h2>광고 유형별 성과 <span class="hint">브랜드검색은 계약형 상품이라 광고비가 0원으로 집계됩니다 · 증감은 직전 동일 기간 대비</span></h2>
+      <h2>광고 유형별 성과 <span class="hint">브랜드검색 광고비는 계약 광고비를 계약 기간 일수로 나눠 반영 · 증감은 직전 동일 기간 대비</span></h2>
       <div class="card scroll"><table id="typeTable"></table></div>
       <div id="typeBrand"></div>
     </section>
@@ -497,7 +497,7 @@ function renderHours(){
   const by = Array.from({length:24}, ()=>[]); for (const r of rows) { const h=+r.hour; if (h>=0 && h<24) by[h].push(r); }
   const k = S.hourMetric, [,label,fmt] = BD_TABS.find(t=>t[0]===k);
   barChart('hourChart', by.map((_,h)=>`${h}시`), by.map(rs=>metricVal(sum(rs),k)), {pctK:k==='ctr'||k==='roas', fmt});
-  document.getElementById('hourHint').textContent = `노출 시점 기준 0~23시 · 구매는 최근 45일까지만 제공${S.hourly.length?'':' · 다음 수집부터 표시'}`;
+  document.getElementById('hourHint').textContent = `노출 시점 기준 0~23시 · 구매는 최근 45일까지만 제공 · 브랜드검색 계약 비용 제외${S.hourly.length?'':' · 다음 수집부터 표시'}`;
 }
 function renderRegions(){
   const rows = S.region.filter(bdFilt);
@@ -510,7 +510,7 @@ function renderRegions(){
   const cols = [{k:'name',l:'지역',f:esc},{k:'spend',l:'광고비',f:won},{k:'clicks',l:'클릭',f:n0},{k:'ctr',l:'CTR',f:v=>pct(v)},{k:'purchases',l:'구매',f:n0},{k:'purchase_value',l:'구매 매출',f:won},{k:'roas',l:'ROAS',f:roasF},
     {k:'share',l:'광고비 비중',noTotal:1,html:r=>tot.spend?(r.spend/tot.spend*100).toFixed(1)+'%':'-'}];
   table(document.getElementById('regionTable'),'region',cols,top,tot);
-  document.getElementById('regionHint').textContent = '사용자 접속 위치 기준 · 구매는 최근 45일까지만 제공';
+  document.getElementById('regionHint').textContent = '사용자 접속 위치 기준 · 구매는 최근 45일까지만 제공 · 브랜드검색 계약 비용 제외';
 }
 const AGE_ORDER = s => { const m=String(s).match(/\d+/); return m?+m[0]:999; };
 function renderDemo(){
@@ -533,6 +533,22 @@ function renderDemo(){
   }
 }
 
+/* ---------- 브랜드검색 계약 비용 (일할 계산) ---------- */
+function addBrandSearchCost(rows, meta, contracts){
+  const first = meta.first_date || (rows[0]||{}).date, last = meta.last_date || (rows[rows.length-1]||{}).date;
+  if (!first || !last) return;
+  for (const c of contracts) {
+    const days = daysBetween(c.start, c.end); if (!(days > 0) || !c.amount) continue;
+    const daily = c.amount / days;
+    const t = rows.find(r=>r.adgroup===c.adgroup) || {campaign:'브랜드검색', campaign_type:'BRAND_SEARCH', adgroup:c.adgroup, campaign_id:'', adgroup_id:''};
+    for (let d=c.start; d<=c.end; d=addDays(d,1)) {
+      if (d < first || d > last) continue;
+      rows.push({date:d, customer_id:t.customer_id, campaign_id:t.campaign_id, campaign:t.campaign, campaign_type:'BRAND_SEARCH', adgroup_id:t.adgroup_id, adgroup:t.adgroup,
+        impressions:0, clicks:0, spend:daily, avg_rank:0, purchases:0, purchase_value:0, add_to_cart:0, contract:c.name});
+    }
+  }
+}
+
 /* ---------- 렌더 ---------- */
 function render(){
   const c = cur(), p = prev(); const tc = sum(c), tp = sum(p);
@@ -545,8 +561,10 @@ async function getJson(path, fallback){
   try { const r = await fetch(path + '?v=' + Date.now()); if (!r.ok) return fallback; return await r.json(); } catch(e){ return fallback; }
 }
 async function init(){
-  const [rows, meta, hourly, region, demo] = await Promise.all([getJson('data/naver/adgroups_daily.json', []), getJson('data/naver/meta.json', {}),
-    getJson('data/naver/hourly.json', []), getJson('data/naver/region.json', []), getJson('data/naver/demographic.json', [])]);
+  const [rows, meta, hourly, region, demo, bsc] = await Promise.all([getJson('data/naver/adgroups_daily.json', []), getJson('data/naver/meta.json', {}),
+    getJson('data/naver/hourly.json', []), getJson('data/naver/region.json', []), getJson('data/naver/demographic.json', []),
+    getJson('data/naver/brand_search_contracts.json', {contracts:[]})]);
+  addBrandSearchCost(rows, meta, bsc.contracts || []);
   for (const r of [...hourly, ...region, ...demo]) r.type = TYPE_LABEL[r.campaign_type] || r.campaign_type || '기타';
   Object.assign(S, {hourly, region, demo});
   for (const r of rows) { r.brand = brandOf(r); r.type = TYPE_LABEL[r.campaign_type] || r.campaign_type || '기타'; r.rank_w = (+r.avg_rank||0) * (+r.impressions||0); }
