@@ -28,10 +28,13 @@ import collections
 import datetime as dt
 import hashlib
 import hmac
+import http.client
+import socket
 import json
 import os
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -118,6 +121,9 @@ def request(customer_id, method, uri, params=None, body=None, raw=False):
         except urllib.error.URLError as e:
             print(f"  연결 오류 {uri}: {e.reason}")
             time.sleep(5 * (attempt + 1))
+        except (http.client.IncompleteRead, ConnectionError, TimeoutError, socket.timeout) as e:
+            print(f"  전송 중단 {uri}: {type(e).__name__} — 재시도")
+            time.sleep(5 * (attempt + 1))
     raise RuntimeError(f"{method} {uri} 재시도 초과")
 
 
@@ -161,6 +167,21 @@ def fetch_report(cid, report_tp, day):
             request(cid, "DELETE", f"/stat-reports/{job_id}")
         except Exception:  # noqa: BLE001
             pass
+
+
+def fetch_reports(cid, report_tp, days, workers=4):
+    """여러 날짜 보고서를 동시에 받음. 실패한 날은 건너뛰고 기록."""
+    def one(day):
+        try:
+            return day, fetch_report(cid, report_tp, day)
+        except Exception as e:  # noqa: BLE001
+            print(f"  {report_tp} {day} 건너뜀: {e}")
+            DIAG["skipped"].setdefault(report_tp, []).append(day)
+            return day, None
+    with ThreadPoolExecutor(max_workers=workers) as ex:
+        for day, rows in ex.map(one, days):
+            if rows is not None:
+                yield day, rows
 
 
 def conv_kind(ctype):
@@ -215,8 +236,8 @@ def collect_customer(cid, cname, days, type_totals):
 
     # 2) 구매·장바구니 (AD_CONVERSION: Date, Customer, Campaign, AdGroup, Keyword, Ad, BizChannel, Media, PC/Mobile, Method, Type, Count, Sales)
     conv = collections.defaultdict(collections.Counter)
-    for day in days:
-        for c in fetch_report(cid, "AD_CONVERSION", day):
+    for day, report in fetch_reports(cid, "AD_CONVERSION", days):
+        for c in report:
             if len(c) < 13:
                 continue
             kind = conv_kind(c[10])
@@ -251,36 +272,30 @@ def collect_customer(cid, cname, days, type_totals):
     hourly = collections.defaultdict(collections.Counter)
     region = collections.defaultdict(collections.Counter)
     detail_days = days[-DETAIL_MAX_DAYS:]
-    for day in detail_days:
-        try:
-            for c in fetch_report(cid, "AD_DETAIL", day):
-                if len(c) < 14:
-                    continue
-                inf = info(c[3], c[2])
-                base = (day, inf["campaign_id"], inf["brand"])
-                imp, clk, cost = num(c[11], int), num(c[12], int), num(c[13])
-                for agg, dim in ((hourly, hour_of(c[7])), (region, c[8].strip())):
-                    k = agg[base + (dim,)]
-                    k["impressions"] += imp; k["clicks"] += clk; k["spend"] += cost
-        except RuntimeError as e:
-            print(f"  AD_DETAIL {day} 건너뜀: {e}")
+    for day, report in fetch_reports(cid, "AD_DETAIL", detail_days):
+        for c in report:
+            if len(c) < 14:
+                continue
+            inf = info(c[3], c[2])
+            base = (day, inf["campaign_id"], inf["brand"])
+            imp, clk, cost = num(c[11], int), num(c[12], int), num(c[13])
+            for agg, dim in ((hourly, hour_of(c[7])), (region, c[8].strip())):
+                k = agg[base + (dim,)]
+                k["impressions"] += imp; k["clicks"] += clk; k["spend"] += cost
     print(f"  시간대·지역 성과 {len(detail_days)}일 완료")
 
     # 4) 시간대·지역 구매 (AD_CONVERSION_DETAIL: ..., Hours, Region, Media, PC/Mobile, Method, Type, Count, Sales)
     cdays = days[-CONV_DETAIL_MAX_DAYS:]
-    for day in cdays:
-        try:
-            for c in fetch_report(cid, "AD_CONVERSION_DETAIL", day):
-                if len(c) < 15 or conv_kind(c[12]) != "purchase":
-                    continue
-                inf = info(c[3], c[2])
-                base = (day, inf["campaign_id"], inf["brand"])
-                cnt, value = num(c[13]), num(c[14], int)
-                for agg, dim in ((hourly, hour_of(c[7])), (region, c[8].strip())):
-                    k = agg[base + (dim,)]
-                    k["purchases"] += cnt; k["purchase_value"] += value
-        except RuntimeError as e:
-            print(f"  AD_CONVERSION_DETAIL {day} 건너뜀: {e}")
+    for day, report in fetch_reports(cid, "AD_CONVERSION_DETAIL", cdays):
+        for c in report:
+            if len(c) < 15 or conv_kind(c[12]) != "purchase":
+                continue
+            inf = info(c[3], c[2])
+            base = (day, inf["campaign_id"], inf["brand"])
+            cnt, value = num(c[13]), num(c[14], int)
+            for agg, dim in ((hourly, hour_of(c[7])), (region, c[8].strip())):
+                k = agg[base + (dim,)]
+                k["purchases"] += cnt; k["purchase_value"] += value
     print(f"  시간대·지역 구매 {len(cdays)}일 완료")
 
     def flatten(agg, dim_name):
@@ -333,7 +348,7 @@ def collect_customer(cid, cname, days, type_totals):
                                 "name": b.get("name", ""), "impressions": imp, "clicks": clk, "spend": cost,
                                 "conversions": num(b.get("ccnt")),
                             })
-            except RuntimeError as e:
+            except Exception as e:  # noqa: BLE001
                 print(f"  {bd} {day} 건너뜀: {e}")
     print(f"  성별·연령 {len(demo)}행")
 
@@ -398,7 +413,7 @@ def main():
             "last_date": max(dates) if dates else None,
             "conversion_basis": "구매 완료 · 직접+간접 전환 (AD_CONVERSION)",
             "conversion_types_last_run": dict(type_totals),
-            "report_samples": DIAG.get("sample", {}),
+            "skipped_days": DIAG.get("skipped", {}),
         }, f, ensure_ascii=False)
 
     print(f"저장 완료: {len(rows)}행 · 시간대 {len(all_hour)} · 지역 {len(all_region)} · 성별/연령 {len(all_demo)}")
