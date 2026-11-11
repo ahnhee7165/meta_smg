@@ -189,7 +189,9 @@ body{word-break:keep-all}
 </div>
 
 <script>
-const SMG_BRANDS = ['지포','레드렌서','오피넬','클린켄틴','날진'];
+const SMG_BRANDS = ['지포','지포 라이선스','레드렌서','오피넬','클린켄틴','날진'];
+// 지포 라이선스(면도기 등 라이선스 제품): 광고세트·캠페인·소재 이름에 아래 단어가 있으면 '지포'와 따로 집계
+const LICENSE_KEYS = ['라이센스','라이선스','면도기','razor'];
 const ACCOUNTS = [
   {key:'smg',  label:'SMG STORE',  paths:['data'],      brands:SMG_BRANDS},
   {key:'buff', label:'buff.korea', paths:['data/buff'], brands:[]},
@@ -200,6 +202,8 @@ const BRANDS = ACCT.brands;  // 광고세트 → 캠페인 이름 순서로 찾�
 const S = { ads:[], bd:{}, creatives:{}, meta:{}, range:null, campaign:'', brand:'', trendMetric:'spend', crMetric:'purchases', sort:{} };
 function brandOf(r){
   if (r._brand) return r._brand;
+  const all = `${r.adset||''} ${r.campaign||''} ${r.ad||''}`.toLowerCase();
+  if (BRANDS.includes('지포 라이선스') && all.includes('지포') && LICENSE_KEYS.some(k=>all.includes(k))) return '지포 라이선스';
   for (const src of [r.adset, r.campaign, r.ad]) { const b = BRANDS.find(x=>(src||'').includes(x)); if (b) return b; }
   return '기타';
 }
