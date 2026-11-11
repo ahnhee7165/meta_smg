@@ -1,0 +1,40 @@
+name: GFA 보고서 반영
+
+on:
+  push:
+    paths:
+      - "data/gfa/raw/**"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: gfa-build
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: RAW 파일 누적·합치기
+        run: python scripts/build_gfa.py
+
+      - name: 결과 커밋
+        run: |
+          git config user.name "meta-report-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A data/gfa
+          if git diff --cached --quiet; then
+            echo "변경 없음"
+          else
+            git commit -m "GFA 보고서 반영 $(TZ=Asia/Seoul date '+%Y-%m-%d %H:%M')"
+            git pull --rebase origin main
+            git push
+          fi

@@ -90,8 +90,8 @@ tr.total td{font-weight:700;background:#F1EEE8}
 .notice{background:#FFF7E6;border:1px solid #F2D9A6;color:#6B4A0F;border-radius:10px;padding:12px 14px;margin-top:12px;line-height:1.6}
 @media (max-width:1280px){.kpis{grid-template-columns:repeat(4,minmax(0,1fr))}.creatives{grid-template-columns:repeat(3,minmax(0,1fr))}}@media (max-width:1100px){.grid3{grid-template-columns:1fr}}
 @media (max-width:860px){.layout{grid-template-columns:1fr}aside.side{position:static;height:auto;flex-direction:row;flex-wrap:wrap;align-items:center;padding:16px}.side nav{flex-direction:row;flex-wrap:wrap}.side .foot{display:none}main{padding:16px}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.creatives{grid-template-columns:repeat(2,minmax(0,1fr))}.grid2{grid-template-columns:1fr}}
-.side .media{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:#151A24;border-radius:10px;padding:4px}
-.side .media a{text-align:center;text-decoration:none;padding:8px 4px;border-radius:7px;color:#A9B0BF;font-size:12px;font-weight:700;word-break:keep-all}
+.side .media{display:grid;grid-template-columns:repeat(3,1fr);gap:4px;background:#151A24;border-radius:10px;padding:4px}
+.side .media a{text-align:center;text-decoration:none;padding:8px 2px;border-radius:7px;color:#A9B0BF;font-size:12px;font-weight:700;white-space:nowrap;letter-spacing:-.02em}
 .side .media a.on{background:#2C3446;color:#fff}
 body{word-break:keep-all}
 .kpi .d span{white-space:nowrap}
@@ -111,7 +111,7 @@ body{word-break:keep-all}
 <div class="layout">
   <aside class="side">
     <div class="brand">SMG STORE<small>네이버 검색광고 성과 리포트</small></div>
-    <div class="media"><a href="index.html">메타</a><a href="naver.html" class="on">네이버 SA</a></div>
+    <div class="media"><a href="index.html">메타</a><a href="naver.html" class="on" title="네이버 검색광고">네이버SA</a><a href="gfa.html" title="네이버 GFA 애드부스트">GFA</a></div>
     <nav>
       <a href="#summary" class="on">요약</a>
       <a href="#brands">브랜드별</a>
@@ -552,7 +552,7 @@ async function init(){
   for (const r of rows) { r.brand = brandOf(r); r.type = TYPE_LABEL[r.campaign_type] || r.campaign_type || '기타'; r.rank_w = (+r.avg_rank||0) * (+r.impressions||0); }
   rows.sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0);
   Object.assign(S, {rows, meta});
-  document.getElementById('foot').innerHTML = meta.updated_at ? `네이버 검색광고<br>업데이트 ${esc(meta.updated_at)}<br>데이터 ${esc(meta.first_date||'')} ~ ${esc(meta.last_date||'')}` : '';
+  document.getElementById('foot').innerHTML = meta.updated_at ? `네이버 검색광고<br>업데이트 ${esc(meta.updated_at)}<br>데이터<br><span style="white-space:nowrap">${esc(meta.first_date||'')} ~ ${esc(meta.last_date||'')}</span>` : '';
   if (!rows.length) {
     document.getElementById('sub').textContent = '아직 수집된 데이터가 없습니다';
     document.querySelectorAll('main section, .filters, .range-label').forEach(el=>el.style.display='none');
