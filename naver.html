@@ -95,6 +95,14 @@ tr.total td{font-weight:700;background:#F1EEE8}
 .side .media a.on{background:#2C3446;color:#fff}
 body{word-break:keep-all}
 .kpi .d span{white-space:nowrap}
+.typebar{display:flex;gap:6px;margin:4px 0 14px;flex-wrap:wrap}
+.typebar button{padding:9px 18px;font-weight:700;border-radius:999px}
+.typebar button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.typebar button small{font-weight:500;opacity:.7;margin-left:6px}
+.type-card{margin-top:16px}
+.type-card td:first-child{min-width:110px}
+.type-card h3{margin:0 0 10px;font-size:15px;display:flex;align-items:baseline;gap:10px}
+.type-card h3 small{font-size:12px;font-weight:400;color:var(--muted)}
 </style>
 </head>
 <body>
@@ -124,11 +132,11 @@ body{word-break:keep-all}
         <select id="selWeek" aria-label="주차"></select>
         <select id="selDay" aria-label="일"></select>
         <select id="selBrand" aria-label="브랜드"></select>
-        <select id="selType" aria-label="광고 유형"></select>
         <select id="selCampaign" aria-label="캠페인"></select>
         <button id="btnCsv">CSV 다운로드</button>
       </div>
     </div>
+    <div class="typebar" id="typeTabs"></div>
     <div class="range-label" id="rangeLabel"></div>
 
     <section>
@@ -142,8 +150,9 @@ body{word-break:keep-all}
     </section>
 
     <section id="types">
-      <h2>광고 유형별 성과 <span class="hint">브랜드검색은 계약형 상품이라 광고비가 0원으로 집계됩니다</span></h2>
+      <h2>광고 유형별 성과 <span class="hint">브랜드검색은 계약형 상품이라 광고비가 0원으로 집계됩니다 · 증감은 직전 동일 기간 대비</span></h2>
       <div class="card scroll"><table id="typeTable"></table></div>
+      <div id="typeBrand"></div>
     </section>
 
     <section id="trend">
@@ -174,8 +183,9 @@ body{word-break:keep-all}
 <script>
 const BRANDS = ['지포','레드렌서','오피넬','버프','날진','클린켄틴','피코크'];
 const COMMON = 'SMG 공통';
+const TYPE_ORDER = ['쇼핑검색','파워링크','브랜드검색','플레이스','파워컨텐츠','카탈로그','기타'];
 const TYPE_LABEL = {SHOPPING:'쇼핑검색', WEB_SITE:'파워링크', BRAND_SEARCH:'브랜드검색', PLACE:'플레이스', POWER_CONTENTS:'파워컨텐츠', CATALOG:'카탈로그'};
-const S = { rows:[], meta:{}, range:null, campaign:'', brand:'', type:'', trendMetric:'spend', sort:{} };
+const S = { rows:[], types:[], meta:{}, range:null, campaign:'', brand:'', type:'', trendMetric:'spend', sort:{} };
 function brandOf(r){
   for (const src of [r.campaign, r.adgroup]) { const b = BRANDS.find(x=>(src||'').includes(x)); if (b) return b; }
   return COMMON;
@@ -371,7 +381,25 @@ function renderBrands(){
 /* ---------- 광고 유형 ---------- */
 function renderTypes(){
   const c = cur('type'), p = prev('type');
-  table(document.getElementById('typeTable'),'type',[{k:'name',l:'광고 유형',f:esc}].concat(METRIC_COLS), groupBy(c, r=>r.type), sum(c), toMap(groupBy(p, r=>r.type)), sum(p));
+  const order = TYPE_ORDER;
+  const g = groupBy(c, r=>r.type).sort((a,b)=>order.indexOf(a.name)-order.indexOf(b.name));
+  table(document.getElementById('typeTable'),'type',[{k:'name',l:'광고 유형',f:esc}].concat(METRIC_COLS), g, sum(c), toMap(groupBy(p, r=>r.type)), sum(p));
+  // 유형별 → 브랜드 분해 (선택한 유형만, 전체면 모두)
+  const types = S.type ? [S.type] : g.map(x=>x.name);
+  const bOrder = BRANDS.concat([COMMON]);
+  document.getElementById('typeBrand').innerHTML = types.map(t=>`<div class="card type-card"><h3>${esc(t)} <small>브랜드별</small></h3><div class="scroll"><table id="tb_${esc(t)}"></table></div></div>`).join('');
+  for (const t of types) {
+    const ct = c.filter(r=>r.type===t), pt = p.filter(r=>r.type===t);
+    const bg = groupBy(ct, r=>r.brand).sort((a,b)=>bOrder.indexOf(a.name)-bOrder.indexOf(b.name));
+    table(document.getElementById('tb_'+t),'tb_'+t,[{k:'name',l:'브랜드',f:esc}].concat(METRIC_COLS), bg, sum(ct), toMap(groupBy(pt, r=>r.brand)), sum(pt));
+  }
+}
+function renderTypeTabs(){
+  const c = S.rows.filter(r=>inRange(r,S.range.from,S.range.to) && filtOk(r,'type'));
+  const spend = Object.fromEntries(TYPE_ORDER.map(t=>[t, sum(c.filter(r=>r.type===t)).spend]));
+  const total = sum(c).spend;
+  document.getElementById('typeTabs').innerHTML = [['','전체',total]].concat(S.types.map(t=>[t,t,spend[t]]))
+    .map(([v,l,sp])=>`<button data-type="${esc(v)}" class="${S.type===v?'on':''}">${esc(l)}<small>${won(sp||0)}</small></button>`).join('');
 }
 
 /* ---------- 일별 · 캠페인 · 광고그룹 ---------- */
@@ -409,7 +437,7 @@ function downloadCsv(){
 /* ---------- 렌더 ---------- */
 function render(){
   const c = cur(), p = prev(); const tc = sum(c), tp = sum(p);
-  renderKpis(tc,tp); renderBrands(); renderTypes(); renderTrend(c,p); renderDaily(c,tc); renderCampaigns(c,tc,p,tp); renderAdgroups(c,tc,p,tp);
+  renderTypeTabs(); renderKpis(tc,tp); renderBrands(); renderTypes(); renderTrend(c,p); renderDaily(c,tc); renderCampaigns(c,tc,p,tp); renderAdgroups(c,tc,p,tp);
 }
 function fillSelect(id, all, label){
   document.getElementById(id).innerHTML = `<option value="">${label}</option>` + all.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
@@ -431,7 +459,7 @@ async function init(){
   document.getElementById('sub').textContent = '전환수·전환 매출은 네이버 총 전환(직접+간접) 기준 · 평균순위는 노출 가중 평균';
   const have = new Set(rows.map(r=>r.brand));
   fillSelect('selBrand', BRANDS.concat([COMMON]).filter(b=>have.has(b)), '브랜드 전체');
-  fillSelect('selType', [...new Set(rows.map(r=>r.type))].sort(), '광고 유형 전체');
+  S.types = [...new Set(rows.map(r=>r.type))].sort((a,b)=>TYPE_ORDER.indexOf(a)-TYPE_ORDER.indexOf(b));
   fillSelect('selCampaign', [...new Set(rows.map(r=>r.campaign))].sort(), '캠페인 전체');
   buildMonthOptions(); onMonthChange();
 }
@@ -440,7 +468,7 @@ document.getElementById('selWeek').addEventListener('change', onWeekChange);
 document.getElementById('selDay').addEventListener('change', applyRange);
 document.getElementById('selCampaign').addEventListener('change', e=>{ S.campaign=e.target.value; render(); });
 document.getElementById('selBrand').addEventListener('change', e=>{ S.brand=e.target.value; render(); });
-document.getElementById('selType').addEventListener('change', e=>{ S.type=e.target.value; render(); });
+document.getElementById('typeTabs').addEventListener('click', e=>{ const b=e.target.closest('button[data-type]'); if(!b) return; S.type=b.dataset.type; render(); });
 document.getElementById('brandCards').addEventListener('click', e=>{ const c=e.target.closest('[data-brand]'); if(!c) return; S.brand = S.brand===c.dataset.brand ? '' : c.dataset.brand; document.getElementById('selBrand').value=S.brand; render(); });
 document.getElementById('btnCsv').addEventListener('click', downloadCsv);
 document.getElementById('trendTabs').addEventListener('click', e=>{ const b=e.target.closest('button'); if(!b) return; S.trendMetric=b.dataset.k; renderTrend(cur(), prev()); });
