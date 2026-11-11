@@ -539,7 +539,7 @@ function addBrandSearchCost(rows, meta, contracts){
   if (!first || !last) return;
   for (const c of contracts) {
     const days = daysBetween(c.start, c.end); if (!(days > 0) || !c.amount) continue;
-    const daily = c.amount / days;
+    const daily = (c.amount - (c.refund||0)) / days;
     const t = rows.find(r=>r.adgroup===c.adgroup) || {campaign:'브랜드검색', campaign_type:'BRAND_SEARCH', adgroup:c.adgroup, campaign_id:'', adgroup_id:''};
     for (let d=c.start; d<=c.end; d=addDays(d,1)) {
       if (d < first || d > last) continue;
