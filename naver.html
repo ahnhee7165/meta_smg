@@ -101,6 +101,8 @@ body{word-break:keep-all}
 .typebar button small{font-weight:500;opacity:.7;margin-left:6px}
 .type-card{margin-top:16px}
 .type-card td:first-child{min-width:110px}
+#regionTable td:first-child,#genderTable td:first-child,#ageTable td:first-child{min-width:0;white-space:nowrap}
+#regionTable th,#regionTable td{padding:9px 7px}
 .type-card h3{margin:0 0 10px;font-size:15px;display:flex;align-items:baseline;gap:10px}
 .type-card h3 small{font-size:12px;font-weight:400;color:var(--muted)}
 </style>
@@ -115,6 +117,9 @@ body{word-break:keep-all}
       <a href="#brands">브랜드별</a>
       <a href="#types">광고 유형별</a>
       <a href="#trend">일별 추이</a>
+      <a href="#hours">시간대</a>
+      <a href="#regions">지역</a>
+      <a href="#demo">성별 · 연령</a>
       <a href="#daily">일별 데이터</a>
       <a href="#campaigns">캠페인</a>
       <a href="#adgroups">광고그룹</a>
@@ -163,6 +168,35 @@ body{word-break:keep-all}
       </div>
     </section>
 
+    <section id="hours">
+      <h2>시간대별 성과 <span class="hint" id="hourHint"></span></h2>
+      <div class="card">
+        <div class="tabs" id="hourTabs"></div>
+        <div class="chart-wrap"><canvas id="hourChart" aria-label="시간대별 그래프"></canvas></div>
+      </div>
+    </section>
+
+    <section id="regions">
+      <h2>지역별 성과 <span class="hint" id="regionHint"></span></h2>
+      <div class="grid2">
+        <div class="card">
+          <div class="tabs" id="regionTabs"></div>
+          <div class="chart-wrap" style="height:520px"><canvas id="regionChart" aria-label="지역별 그래프"></canvas></div>
+        </div>
+        <div class="card scroll" style="max-height:600px"><table id="regionTable"></table></div>
+      </div>
+    </section>
+
+    <section id="demo">
+      <h2>성별 · 연령 <span class="hint" id="demoHint"></span></h2>
+      <div class="tabs" id="demoTabs"></div>
+      <div class="grid2" id="demoGrid">
+        <div class="card"><h2 style="font-size:15px">성별</h2><div class="chart-wrap" style="height:260px"><canvas id="genderChart" aria-label="성별 그래프"></canvas></div><div class="scroll"><table id="genderTable"></table></div></div>
+        <div class="card"><h2 style="font-size:15px">연령</h2><div class="chart-wrap" style="height:260px"><canvas id="ageChart" aria-label="연령 그래프"></canvas></div><div class="scroll"><table id="ageTable"></table></div></div>
+      </div>
+      <div class="empty card" id="demoEmpty" style="display:none"></div>
+    </section>
+
     <section id="daily">
       <h2>일별 데이터 <span class="hint">증감은 전일 대비 · 열 제목을 누르면 정렬</span></h2>
       <div class="card scroll"><table id="dayTable"></table></div>
@@ -185,7 +219,7 @@ const BRANDS = ['지포','레드렌서','오피넬','버프','날진','클린켄
 const COMMON = 'SMG 공통';
 const TYPE_ORDER = ['쇼핑검색','파워링크','브랜드검색','플레이스','파워컨텐츠','카탈로그','기타'];
 const TYPE_LABEL = {SHOPPING:'쇼핑검색', WEB_SITE:'파워링크', BRAND_SEARCH:'브랜드검색', PLACE:'플레이스', POWER_CONTENTS:'파워컨텐츠', CATALOG:'카탈로그'};
-const S = { rows:[], types:[], meta:{}, range:null, campaign:'', brand:'', type:'', trendMetric:'spend', sort:{} };
+const S = { rows:[], hourly:[], region:[], demo:[], types:[], meta:{}, range:null, campaign:'', brand:'', type:'', trendMetric:'spend', sort:{} };
 function brandOf(r){
   for (const src of [r.campaign, r.adgroup]) { const b = BRANDS.find(x=>(src||'').includes(x)); if (b) return b; }
   return COMMON;
@@ -198,7 +232,7 @@ const roasF = v => (v==null||!isFinite(v)) ? '-' : nf.format(Math.round(v*100)) 
 const rankF = v => (v==null||!isFinite(v)) ? '-' : v.toFixed(1) + '위';
 const esc = s => String(s??'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
-const SUM_KEYS = ['impressions','clicks','spend','conversions','conversion_value','rank_w'];
+const SUM_KEYS = ['impressions','clicks','spend','purchases','purchase_value','add_to_cart','rank_w'];
 function sum(rows){
   const t = Object.fromEntries(SUM_KEYS.map(k=>[k,0]));
   for (const r of rows) for (const k of SUM_KEYS) t[k] += +r[k]||0;
@@ -207,10 +241,10 @@ function sum(rows){
 function derive(t){
   t.ctr = t.impressions ? t.clicks/t.impressions : null;
   t.cpc = t.clicks ? t.spend/t.clicks : null;
-  t.cpa = t.conversions ? t.spend/t.conversions : null;
-  t.roas = t.spend ? t.conversion_value/t.spend : null;
-  t.cvr = t.clicks ? t.conversions/t.clicks : null;
-  t.aov = t.conversions ? t.conversion_value/t.conversions : null;
+  t.cpa = t.purchases ? t.spend/t.purchases : null;
+  t.roas = t.spend ? t.purchase_value/t.spend : null;
+  t.cvr = t.clicks ? t.purchases/t.clicks : null;
+  t.aov = t.purchases ? t.purchase_value/t.purchases : null;
   t.avg_rank = t.impressions && t.rank_w ? t.rank_w/t.impressions : null;
   return t;
 }
@@ -299,7 +333,7 @@ function deltaHtml(k, c, p){
 /* ---------- KPI ---------- */
 const KPI = [
   ['spend','광고비',won,true],['impressions','노출',n0],['clicks','클릭',n0],['ctr','CTR',v=>pct(v)],['cpc','CPC',won],['avg_rank','평균 노출순위',rankF],
-  ['conversions','전환수',n0,true],['conversion_value','전환 매출',won,true],['roas','ROAS',roasF,true],['cpa','전환당 비용',won],['cvr','전환율',v=>pct(v)],['aov','전환당 매출',won],
+  ['purchases','구매',n0,true],['purchase_value','구매 매출',won,true],['roas','ROAS',roasF,true],['cpa','CPA',won],['aov','객단가',won],['add_to_cart','장바구니',n0],
 ];
 function renderKpis(c,p){
   document.getElementById('kpis').innerHTML = KPI.map(([k,label,f,hl])=>{
@@ -312,7 +346,7 @@ function renderKpis(c,p){
 }
 
 /* ---------- 추이 ---------- */
-const TREND = [['spend','광고비',won,'bar'],['conversion_value','전환 매출',won,'bar'],['conversions','전환수',n0,'bar'],['roas','ROAS',roasF,'line'],['clicks','클릭',n0,'bar'],['ctr','CTR',v=>pct(v),'line'],['cpc','CPC',won,'line'],['cpa','전환당 비용',won,'line'],['avg_rank','평균 노출순위',rankF,'line']];
+const TREND = [['spend','광고비',won,'bar'],['purchase_value','구매 매출',won,'bar'],['purchases','구매',n0,'bar'],['roas','ROAS',roasF,'line'],['clicks','클릭',n0,'bar'],['ctr','CTR',v=>pct(v),'line'],['cpc','CPC',won,'line'],['cpa','CPA',won,'line'],['avg_rank','평균 노출순위',rankF,'line']];
 let chart;
 function renderTrend(rows, prows){
   document.getElementById('trendTabs').innerHTML = TREND.map(([k,l])=>`<button data-k="${k}" class="${k===S.trendMetric?'on':''}">${l}</button>`).join('');
@@ -358,7 +392,7 @@ function groupBy(rows, keyFn, extra){
 }
 const METRIC_COLS = [
   {k:'spend',l:'광고비',f:won,delta:1},{k:'impressions',l:'노출',f:n0},{k:'clicks',l:'클릭',f:n0,delta:1},{k:'ctr',l:'CTR',f:v=>pct(v),delta:1},{k:'cpc',l:'CPC',f:won,delta:1},
-  {k:'avg_rank',l:'평균순위',f:rankF},{k:'conversions',l:'전환수',f:n0,delta:1},{k:'conversion_value',l:'전환 매출',f:won,delta:1},{k:'roas',l:'ROAS',f:roasF,delta:1},{k:'cpa',l:'전환당 비용',f:won,delta:1},{k:'cvr',l:'전환율',f:v=>pct(v)},
+  {k:'avg_rank',l:'평균순위',f:rankF},{k:'purchases',l:'구매',f:n0,delta:1},{k:'purchase_value',l:'구매 매출',f:won,delta:1},{k:'roas',l:'ROAS',f:roasF,delta:1},{k:'cpa',l:'CPA',f:won,delta:1},{k:'cvr',l:'구매율',f:v=>pct(v)},{k:'add_to_cart',l:'장바구니',f:n0,delta:1},
 ];
 const toMap = arr => new Map(arr.map(x=>[x.name,x]));
 
@@ -373,7 +407,7 @@ function renderBrands(){
     const pb = prv.get(b.name) || null; const share = tot.spend ? b.spend/tot.spend : 0;
     const row = (l,k,f) => `<dt>${l}</dt><dd>${f(b[k])}</dd><dd class="dd2">${deltaHtml(k, b[k], pb?pb[k]:(RATE.has(k)?null:0))}</dd>`;
     return `<div class="brand-card ${S.brand===b.name?'on':''}" data-brand="${esc(b.name)}"><div class="bn">${esc(b.name)}<small>광고비 비중 ${(share*100).toFixed(0)}%</small></div>
-      <dl>${row('광고비','spend',won)}${row('전환 매출','conversion_value',won)}${row('ROAS','roas',roasF)}${row('전환수','conversions',n0)}${row('클릭','clicks',n0)}${row('CPC','cpc',won)}</dl></div>`;
+      <dl>${row('광고비','spend',won)}${row('구매 매출','purchase_value',won)}${row('ROAS','roas',roasF)}${row('구매','purchases',n0)}${row('클릭','clicks',n0)}${row('CPC','cpc',won)}</dl></div>`;
   }).join('') || '<div class="empty">이 기간 데이터가 없습니다</div>';
   table(document.getElementById('brandTable'),'brand',[{k:'name',l:'브랜드',f:esc}].concat(METRIC_COLS), curG, tot, prv, sum(p));
 }
@@ -427,17 +461,82 @@ function renderAdgroups(rows, total, prows, ptotal){
 /* ---------- CSV ---------- */
 function downloadCsv(){
   const rows = cur();
-  const head = ['날짜','월','주차','브랜드','광고유형','캠페인','광고그룹','노출','클릭','광고비','전환수','전환매출','평균노출순위'];
-  const lines = [head.join(',')].concat(rows.map(r=>[r.date, +r.date.slice(5,7)+'월', +r.date.slice(5,7)+'월 '+weekOf(r.date)+'주차', r.brand, r.type, r.campaign, r.adgroup, r.impressions, r.clicks, r.spend, r.conversions, r.conversion_value, r.avg_rank]
+  const head = ['날짜','월','주차','브랜드','광고유형','캠페인','광고그룹','노출','클릭','광고비','구매','구매매출','장바구니','평균노출순위'];
+  const lines = [head.join(',')].concat(rows.map(r=>[r.date, +r.date.slice(5,7)+'월', +r.date.slice(5,7)+'월 '+weekOf(r.date)+'주차', r.brand, r.type, r.campaign, r.adgroup, r.impressions, r.clicks, r.spend, r.purchases, r.purchase_value, r.add_to_cart, r.avg_rank]
     .map(v=>{ v=String(v??''); return /[",\n]/.test(v)?`"${v.replace(/"/g,'""')}"`:v; }).join(',')));
   const blob = new Blob(['﻿'+lines.join('\n')], {type:'text/csv;charset=utf-8'});
   const a = document.createElement('a'); a.href=URL.createObjectURL(blob); a.download=`smg_naver_${S.range.from}_${S.range.to}.csv`; a.click(); URL.revokeObjectURL(a.href);
 }
 
+
+/* ---------- 시간대 · 지역 · 성별/연령 ---------- */
+const REGION_NM = {'00':'해외','01':'강원','02':'경기','03':'경남','04':'경북','05':'광주','06':'대구','07':'대전','08':'부산','09':'서울','10':'울산','11':'인천','12':'전남','13':'전북','14':'제주','15':'충남','16':'충북','17':'세종','18':'미분류 (코드 18)','99':'국내 (위치 확인 불가)','-1':'알 수 없음','-':'알 수 없음'};
+const regionName = c => REGION_NM[c] || REGION_NM[String(c).padStart(2,'0')] || `코드 ${c}`;
+const BD_TABS = [['clicks','클릭',n0],['spend','광고비',won],['purchases','구매',n0],['purchase_value','구매 매출',won],['ctr','CTR',v=>pct(v)],['roas','ROAS',roasF],['cpc','CPC',won]];
+const DEMO_TABS = [['impressions','노출',n0],['clicks','클릭',n0],['spend','광고비',won],['purchases','전환(전체)',n0],['ctr','CTR',v=>pct(v)],['cpc','CPC',won]];
+S.hourMetric='clicks'; S.regionMetric='clicks'; S.demoMetric='clicks';
+const bdFilt = r => inRange(r,S.range.from,S.range.to) && (!S.campaign || r.campaign===S.campaign) && (!S.brand || r.brand===S.brand) && (!S.type || r.type===S.type);
+const charts = {};
+function barChart(id, labels, vals, {pctK=false, horizontal=false, color='#1F7A4D', fmt=n0}={}){
+  if (charts[id]) charts[id].destroy();
+  const valAxis = {beginAtZero:true,grid:{color:'#ECE9E3'},border:{display:false},ticks:{color:'#7D8494',callback:v=>pctK?v+'%':nf.format(v)}};
+  const catAxis = {grid:{display:false},ticks:{color:'#4A5263',autoSkip:false}};
+  charts[id] = new Chart(document.getElementById(id), {
+    type:'bar', data:{labels, datasets:[{data:vals, backgroundColor:color, borderRadius:4, maxBarThickness:horizontal?18:26}]},
+    options:{maintainAspectRatio:false, indexAxis:horizontal?'y':'x', plugins:{legend:{display:false}, tooltip:{callbacks:{label:ctx=>pctK?ctx.raw.toFixed(2)+'%':fmt(ctx.raw)}}},
+      scales: horizontal ? {x:valAxis, y:catAxis} : {x:catAxis, y:valAxis}}
+  });
+}
+const metricVal = (t,k) => (k==='ctr'||k==='roas') ? (t[k]==null?0:t[k]*100) : (t[k]||0);
+function tabsHtml(list, cur, attr){ return list.map(([k,l])=>`<button data-${attr}="${k}" class="${k===cur?'on':''}">${l}</button>`).join(''); }
+function hasPurchaseData(rows){ return rows.some(r=>r.purchases); }
+
+function renderHours(){
+  const rows = S.hourly.filter(bdFilt);
+  document.getElementById('hourTabs').innerHTML = tabsHtml(BD_TABS, S.hourMetric, 'hm');
+  const by = Array.from({length:24}, ()=>[]); for (const r of rows) { const h=+r.hour; if (h>=0 && h<24) by[h].push(r); }
+  const k = S.hourMetric, [,label,fmt] = BD_TABS.find(t=>t[0]===k);
+  barChart('hourChart', by.map((_,h)=>`${h}시`), by.map(rs=>metricVal(sum(rs),k)), {pctK:k==='ctr'||k==='roas', fmt});
+  document.getElementById('hourHint').textContent = `노출 시점 기준 0~23시 · 구매는 최근 45일까지만 제공${S.hourly.length?'':' · 다음 수집부터 표시'}`;
+}
+function renderRegions(){
+  const rows = S.region.filter(bdFilt);
+  document.getElementById('regionTabs').innerHTML = tabsHtml(BD_TABS, S.regionMetric, 'rm');
+  const g = groupBy(rows, r=>regionName(r.region));
+  const k = S.regionMetric, [,label,fmt] = BD_TABS.find(t=>t[0]===k);
+  const top = g.slice().sort((a,b)=>metricVal(b,k)-metricVal(a,k)).filter(x=>x.impressions||x.purchases);
+  barChart('regionChart', top.map(x=>x.name), top.map(x=>metricVal(x,k)), {pctK:k==='ctr'||k==='roas', horizontal:true, color:'#2E5AAC', fmt});
+  const tot = sum(rows);
+  const cols = [{k:'name',l:'지역',f:esc},{k:'spend',l:'광고비',f:won},{k:'clicks',l:'클릭',f:n0},{k:'ctr',l:'CTR',f:v=>pct(v)},{k:'purchases',l:'구매',f:n0},{k:'purchase_value',l:'구매 매출',f:won},{k:'roas',l:'ROAS',f:roasF},
+    {k:'share',l:'광고비 비중',noTotal:1,html:r=>tot.spend?(r.spend/tot.spend*100).toFixed(1)+'%':'-'}];
+  table(document.getElementById('regionTable'),'region',cols,top,tot);
+  document.getElementById('regionHint').textContent = '사용자 접속 위치 기준 · 구매는 최근 45일까지만 제공';
+}
+const AGE_ORDER = s => { const m=String(s).match(/\d+/); return m?+m[0]:999; };
+function renderDemo(){
+  const all = S.demo.filter(bdFilt);
+  const first = S.demo.length ? S.demo.reduce((a,r)=>r.date<a?r.date:a, S.demo[0].date) : null;
+  document.getElementById('demoHint').textContent = `쇼핑검색 캠페인만 제공 · 네이버가 최근 7일치만 제공해 ${first?first+'부터':'수집 시작일부터'} 매일 누적 · 전환은 장바구니 등을 포함한 전체 전환`;
+  const empty = !all.length;
+  document.getElementById('demoGrid').style.display = empty?'none':'';
+  document.getElementById('demoTabs').style.display = empty?'none':'';
+  const em = document.getElementById('demoEmpty'); em.style.display = empty?'':'none';
+  if (empty) { em.textContent = S.demo.length ? `선택한 기간에는 성별·연령 데이터가 없습니다 (데이터 보유 기간: ${first} 이후)` : '성별·연령 데이터는 다음 자동 수집부터 표시됩니다'; return; }
+  document.getElementById('demoTabs').innerHTML = tabsHtml(DEMO_TABS, S.demoMetric, 'dm');
+  const k = S.demoMetric, [,label,fmt] = DEMO_TABS.find(t=>t[0]===k);
+  const cols = [{k:'name',l:'구분',f:esc},{k:'impressions',l:'노출',f:n0},{k:'clicks',l:'클릭',f:n0},{k:'ctr',l:'CTR',f:v=>pct(v)},{k:'spend',l:'광고비',f:won},{k:'cpc',l:'CPC',f:won},{k:'purchases',l:'전환(전체)',f:n0}];
+  for (const [dim, chartId, tableId, color] of [['gender','genderChart','genderTable','#B85C1E'],['age','ageChart','ageTable','#2E5AAC']]) {
+    const g = groupBy(all.filter(r=>r.dim===dim), r=>r.name).sort((a,b)=> dim==='age' ? AGE_ORDER(a.name)-AGE_ORDER(b.name) : b.impressions-a.impressions);
+    barChart(chartId, g.map(x=>x.name), g.map(x=>metricVal(x,k)), {pctK:k==='ctr', color, fmt});
+    if (!S.sort[tableId]) S.sort[tableId] = {k:'impressions', dir:'desc'};
+    table(document.getElementById(tableId), tableId, cols, g, sum(all.filter(r=>r.dim===dim)));
+  }
+}
+
 /* ---------- 렌더 ---------- */
 function render(){
   const c = cur(), p = prev(); const tc = sum(c), tp = sum(p);
-  renderTypeTabs(); renderKpis(tc,tp); renderBrands(); renderTypes(); renderTrend(c,p); renderDaily(c,tc); renderCampaigns(c,tc,p,tp); renderAdgroups(c,tc,p,tp);
+  renderTypeTabs(); renderKpis(tc,tp); renderBrands(); renderTypes(); renderTrend(c,p); renderHours(); renderRegions(); renderDemo(); renderDaily(c,tc); renderCampaigns(c,tc,p,tp); renderAdgroups(c,tc,p,tp);
 }
 function fillSelect(id, all, label){
   document.getElementById(id).innerHTML = `<option value="">${label}</option>` + all.map(v=>`<option value="${esc(v)}">${esc(v)}</option>`).join('');
@@ -446,7 +545,10 @@ async function getJson(path, fallback){
   try { const r = await fetch(path + '?v=' + Date.now()); if (!r.ok) return fallback; return await r.json(); } catch(e){ return fallback; }
 }
 async function init(){
-  const [rows, meta] = await Promise.all([getJson('data/naver/adgroups_daily.json', []), getJson('data/naver/meta.json', {})]);
+  const [rows, meta, hourly, region, demo] = await Promise.all([getJson('data/naver/adgroups_daily.json', []), getJson('data/naver/meta.json', {}),
+    getJson('data/naver/hourly.json', []), getJson('data/naver/region.json', []), getJson('data/naver/demographic.json', [])]);
+  for (const r of [...hourly, ...region, ...demo]) r.type = TYPE_LABEL[r.campaign_type] || r.campaign_type || '기타';
+  Object.assign(S, {hourly, region, demo});
   for (const r of rows) { r.brand = brandOf(r); r.type = TYPE_LABEL[r.campaign_type] || r.campaign_type || '기타'; r.rank_w = (+r.avg_rank||0) * (+r.impressions||0); }
   rows.sort((a,b)=>a.date<b.date?-1:a.date>b.date?1:0);
   Object.assign(S, {rows, meta});
@@ -456,7 +558,7 @@ async function init(){
     document.querySelectorAll('main section, .filters, .range-label').forEach(el=>el.style.display='none');
     return;
   }
-  document.getElementById('sub').textContent = '전환수·전환 매출은 네이버 총 전환(직접+간접) 기준 · 평균순위는 노출 가중 평균';
+  document.getElementById('sub').textContent = '구매·구매 매출은 구매 완료 전환 기준(직접+간접) · 평균순위는 노출 가중 평균';
   const have = new Set(rows.map(r=>r.brand));
   fillSelect('selBrand', BRANDS.concat([COMMON]).filter(b=>have.has(b)), '브랜드 전체');
   S.types = [...new Set(rows.map(r=>r.type))].sort((a,b)=>TYPE_ORDER.indexOf(a)-TYPE_ORDER.indexOf(b));
@@ -471,6 +573,9 @@ document.getElementById('selBrand').addEventListener('change', e=>{ S.brand=e.ta
 document.getElementById('typeTabs').addEventListener('click', e=>{ const b=e.target.closest('button[data-type]'); if(!b) return; S.type=b.dataset.type; render(); });
 document.getElementById('brandCards').addEventListener('click', e=>{ const c=e.target.closest('[data-brand]'); if(!c) return; S.brand = S.brand===c.dataset.brand ? '' : c.dataset.brand; document.getElementById('selBrand').value=S.brand; render(); });
 document.getElementById('btnCsv').addEventListener('click', downloadCsv);
+document.getElementById('hourTabs').addEventListener('click', e=>{ const b=e.target.closest('button'); if(!b) return; S.hourMetric=b.dataset.hm; renderHours(); });
+document.getElementById('regionTabs').addEventListener('click', e=>{ const b=e.target.closest('button'); if(!b) return; S.regionMetric=b.dataset.rm; renderRegions(); });
+document.getElementById('demoTabs').addEventListener('click', e=>{ const b=e.target.closest('button'); if(!b) return; S.demoMetric=b.dataset.dm; renderDemo(); });
 document.getElementById('trendTabs').addEventListener('click', e=>{ const b=e.target.closest('button'); if(!b) return; S.trendMetric=b.dataset.k; renderTrend(cur(), prev()); });
 document.querySelectorAll('.side nav a').forEach(a=>a.addEventListener('click',()=>{document.querySelectorAll('.side nav a').forEach(x=>x.classList.remove('on')); a.classList.add('on');}));
 init();
